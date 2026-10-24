@@ -5,8 +5,6 @@ phase="${1:?Usage: ./scripts/acceptance.sh <phase-number 0..7>}"
 mkdir -p bin
 # Set CX_RACE=1 for an instrumented engine AND acceptance process.
 export CX_BIN="$(pwd)/bin/cx"
-export CX_EMBED_URL="${CX_EMBED_URL:-http://127.0.0.1:11434}"
-export CX_EMBED_MODEL="${CX_EMBED_MODEL:-qwen3-embedding:0.6b}"
 if [[ -f reports/petclinic.env ]]; then
   # shellcheck disable=SC1091
   source reports/petclinic.env

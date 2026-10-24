@@ -3,27 +3,20 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
 	"example.com/cx/internal/cli"
 	"example.com/cx/internal/engine"
 	"example.com/cx/internal/scan"
-	"example.com/cx/internal/server"
 )
 
 func main() {
-	log.SetFlags(0)
-	log.SetOutput(os.Stderr)
-
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
 	}
 	switch os.Args[1] {
-	case "serve":
-		os.Exit(runServe(os.Args[2:]))
 	case "find":
 		os.Exit(runFind(os.Args[2:]))
 	case "references":
@@ -49,67 +42,55 @@ func main() {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage:
-  cx serve --root /abs/workspace --http 127.0.0.1:8765 [--exclude PATTERN]...
-           [--embed-url URL --embed-model NAME]
-  cx status --server http://127.0.0.1:8765 [--json]
-  cx find QUERY --server http://127.0.0.1:8765 [--mode lexical|semantic|hybrid] [--limit 10] [--json]
-  cx references SYMBOL --server URL [--json]
-  cx endpoints --server URL [--method GET] [--path /owners] [--json]
-  cx beans --type SomeType --server URL [--json]
-  cx config --key a.b.c [--profile prod] --server URL [--json]
-  cx context --symbol Qualified.name [--budget 500] --server URL
+  cx status [--root PATH] [--exclude PATTERN]... [--json]
+  cx find QUERY [--root PATH] [--limit 10] [--exclude PATTERN]... [--json]
+  cx references SYMBOL [--root PATH] [--exclude PATTERN]... [--json]
+  cx endpoints [--method GET] [--path /owners] [--root PATH] [--exclude PATTERN]... [--json]
+  cx beans --type SomeType [--root PATH] [--exclude PATTERN]... [--json]
+  cx config --key a.b.c [--profile prod] [--root PATH] [--exclude PATTERN]... [--json]
+  cx context --symbol Qualified.name [--budget 500] [--root PATH] [--exclude PATTERN]...
 `)
 }
 
-func runServe(args []string) int {
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	root := fs.String("root", "", "absolute workspace root (required)")
-	httpAddr := fs.String("http", "127.0.0.1:8765", "loopback bind address")
-	embedURL := fs.String("embed-url", "", "Ollama base URL (optional; enables semantic)")
-	embedModel := fs.String("embed-model", "", "embedding model name")
-	var excludes multiFlag
-	fs.Var(&excludes, "exclude", "repeatable path/glob exclusion")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if strings.TrimSpace(*root) == "" {
-		fmt.Fprintln(os.Stderr, "--root is required")
-		return 2
-	}
-	if err := scan.ValidateRoot(*root); err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 1
-	}
-	eng, err := engine.Open(*root, engine.Options{
-		Excludes:   excludes,
-		EmbedURL:   strings.TrimSpace(*embedURL),
-		EmbedModel: strings.TrimSpace(*embedModel),
-		Logger:     log.Default(),
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 1
-	}
-	srv := server.New(eng, log.Default())
-	if err := srv.ListenAndServe(*httpAddr); err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 1
-	}
-	return 0
+type common struct {
+	root     *string
+	asJSON   *bool
+	excludes multiFlag
 }
 
-func serverFlag(fs *flag.FlagSet) *string {
-	return fs.String("server", "http://127.0.0.1:8765", "cx serve base URL")
+func addCommon(fs *flag.FlagSet) *common {
+	c := &common{}
+	c.root = fs.String("root", "", "workspace root (default: current directory)")
+	c.asJSON = fs.Bool("json", false, "emit JSON")
+	fs.Var(&c.excludes, "exclude", "repeatable path/glob exclusion")
+	return c
+}
+
+func openEngine(c *common) (*engine.Engine, error) {
+	root := strings.TrimSpace(*c.root)
+	if root == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		root = wd
+	}
+	if err := scan.ValidateRoot(root); err != nil {
+		return nil, err
+	}
+	return engine.Open(root, engine.Options{Excludes: c.excludes})
+}
+
+func failOpen(err error) int {
+	fmt.Fprintln(os.Stderr, err.Error())
+	return 1
 }
 
 func runFind(args []string) int {
 	fs := flag.NewFlagSet("find", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	serverURL := serverFlag(fs)
-	mode := fs.String("mode", "hybrid", "lexical|semantic|hybrid")
+	c := addCommon(fs)
 	limit := fs.Int("limit", 10, "max results (1-50)")
-	asJSON := fs.Bool("json", false, "emit JSON")
 	flagArgs, positional, err := cli.SplitArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -122,14 +103,17 @@ func runFind(args []string) int {
 		fmt.Fprintln(os.Stderr, "query required")
 		return 2
 	}
-	return cli.New(*serverURL).Find(strings.Join(positional, " "), *mode, *limit, *asJSON)
+	eng, err := openEngine(c)
+	if err != nil {
+		return failOpen(err)
+	}
+	return cli.NewPrinter().Find(eng.Search(strings.Join(positional, " "), *limit), *c.asJSON)
 }
 
 func runReferences(args []string) int {
 	fs := flag.NewFlagSet("references", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	serverURL := serverFlag(fs)
-	asJSON := fs.Bool("json", false, "emit JSON")
+	c := addCommon(fs)
 	flagArgs, positional, err := cli.SplitArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -142,28 +126,34 @@ func runReferences(args []string) int {
 		fmt.Fprintln(os.Stderr, "symbol required")
 		return 2
 	}
-	return cli.New(*serverURL).References(strings.Join(positional, " "), *asJSON)
+	eng, err := openEngine(c)
+	if err != nil {
+		return failOpen(err)
+	}
+	return cli.NewPrinter().References(eng.References(strings.Join(positional, " ")), *c.asJSON)
 }
 
 func runEndpoints(args []string) int {
 	fs := flag.NewFlagSet("endpoints", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	serverURL := serverFlag(fs)
+	c := addCommon(fs)
 	method := fs.String("method", "", "HTTP method filter")
 	path := fs.String("path", "", "route filter")
-	asJSON := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	return cli.New(*serverURL).Endpoints(*method, *path, *asJSON)
+	eng, err := openEngine(c)
+	if err != nil {
+		return failOpen(err)
+	}
+	return cli.NewPrinter().Generic(eng.Endpoints(*method, *path), *c.asJSON)
 }
 
 func runBeans(args []string) int {
 	fs := flag.NewFlagSet("beans", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	serverURL := serverFlag(fs)
+	c := addCommon(fs)
 	typ := fs.String("type", "", "bean/interface type")
-	asJSON := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -171,16 +161,19 @@ func runBeans(args []string) int {
 		fmt.Fprintln(os.Stderr, "--type is required")
 		return 2
 	}
-	return cli.New(*serverURL).Beans(*typ, *asJSON)
+	eng, err := openEngine(c)
+	if err != nil {
+		return failOpen(err)
+	}
+	return cli.NewPrinter().Generic(eng.Beans(*typ), *c.asJSON)
 }
 
 func runConfig(args []string) int {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	serverURL := serverFlag(fs)
+	c := addCommon(fs)
 	key := fs.String("key", "", "config key")
 	profile := fs.String("profile", "", "Spring profile")
-	asJSON := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -188,13 +181,17 @@ func runConfig(args []string) int {
 		fmt.Fprintln(os.Stderr, "--key is required")
 		return 2
 	}
-	return cli.New(*serverURL).Config(*key, *profile, *asJSON)
+	eng, err := openEngine(c)
+	if err != nil {
+		return failOpen(err)
+	}
+	return cli.NewPrinter().Generic(eng.Config(*key, *profile), *c.asJSON)
 }
 
 func runContext(args []string) int {
 	fs := flag.NewFlagSet("context", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	serverURL := serverFlag(fs)
+	c := addCommon(fs)
 	symbol := fs.String("symbol", "", "qualified symbol")
 	budget := fs.Int("budget", 500, "text budget")
 	if err := fs.Parse(args); err != nil {
@@ -204,18 +201,25 @@ func runContext(args []string) int {
 		fmt.Fprintln(os.Stderr, "--symbol is required")
 		return 2
 	}
-	return cli.New(*serverURL).Context(*symbol, *budget, true)
+	eng, err := openEngine(c)
+	if err != nil {
+		return failOpen(err)
+	}
+	return cli.NewPrinter().JSON(eng.Context(*symbol, *budget))
 }
 
 func runStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	serverURL := serverFlag(fs)
-	asJSON := fs.Bool("json", false, "emit JSON")
+	c := addCommon(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	return cli.New(*serverURL).Status(*asJSON)
+	eng, err := openEngine(c)
+	if err != nil {
+		return failOpen(err)
+	}
+	return cli.NewPrinter().Status(eng.Status(), *c.asJSON)
 }
 
 type multiFlag []string

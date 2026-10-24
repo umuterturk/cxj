@@ -7,30 +7,32 @@ import (
 	"testing"
 )
 
-func TestP0ServerReadyOnLocalWorkspace(t *testing.T) {
+func TestP0StatusOnLocalWorkspace(t *testing.T) {
 	root := t.TempDir()
 	put(t, root, "src/Main.java", "class Main {}\n")
-	e := start(t, root, false)
+	e := open(t, root)
 	s := e.status(t)
+	if s.Status != "ready" {
+		t.Fatalf("expected ready, got %+v", s)
+	}
 	if s.IndexedFiles < 1 || s.IndexedJavaFiles != 1 {
 		t.Fatalf("wrong file counters: %+v", s)
 	}
-	if s.SemanticState != "off" {
-		t.Fatalf("unexpected semantic mode: %s", s.SemanticState)
-	}
 }
+
 func TestP0RejectNonexistentRoot(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	cmd := exec.Command(binary(t), "serve", "--root", missing, "--http", "127.0.0.1:0")
+	cmd := exec.Command(binary(t), "status", "--root", missing, "--json")
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("invalid root must fail immediately with nonzero exit")
 	}
 }
+
 func TestP0NeverPersistsGeneratedIndex(t *testing.T) {
 	root := t.TempDir()
 	put(t, root, "A.java", "class A {}\n")
-	_ = start(t, root, false)
+	_ = open(t, root).status(t)
 	for _, name := range []string{".cx", ".cxindex", "index.db", "vectors.bin"} {
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
 			t.Fatalf("generated index persisted as %s", name)

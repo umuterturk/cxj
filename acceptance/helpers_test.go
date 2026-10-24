@@ -1,18 +1,12 @@
 package acceptance
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 type result struct {
@@ -25,17 +19,14 @@ type result struct {
 	Snippet string  `json:"snippet"`
 }
 type searchReply struct {
-	Results       []result `json:"results"`
-	SemanticState string   `json:"semantic_state"`
+	Results []result `json:"results"`
 }
 type statusReply struct {
-	Status             string `json:"status"`
-	IndexedFiles       int    `json:"indexed_files"`
-	IndexedJavaFiles   int    `json:"indexed_java_files"`
-	Generation         int    `json:"generation"`
-	SemanticState      string `json:"semantic_state"`
-	SemanticGeneration int    `json:"semantic_generation"`
-	GoHeapAllocBytes   uint64 `json:"go_heap_alloc_bytes"`
+	Status           string `json:"status"`
+	IndexedFiles     int    `json:"indexed_files"`
+	IndexedJavaFiles int    `json:"indexed_java_files"`
+	Generation       int    `json:"generation"`
+	GoHeapAllocBytes uint64 `json:"go_heap_alloc_bytes"`
 }
 type refReply struct {
 	Results []struct {
@@ -73,10 +64,10 @@ type configReply struct {
 	RepositoryValue string   `json:"repository_value"`
 	Resolution      string   `json:"resolution"`
 }
-type engine struct {
-	root, endpoint string
-	command        *exec.Cmd
-	logs           *bytes.Buffer
+
+type workspace struct {
+	root     string
+	excludes []string
 }
 
 func put(t *testing.T, root, name, contents string) {
@@ -89,16 +80,7 @@ func put(t *testing.T, root, name, contents string) {
 		t.Fatal(err)
 	}
 }
-func freeAddress(t *testing.T) string {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := l.Addr().String()
-	l.Close()
-	return addr
-}
+
 func binary(t *testing.T) string {
 	t.Helper()
 	b := os.Getenv("CX_BIN")
@@ -110,103 +92,104 @@ func binary(t *testing.T) string {
 	}
 	return b
 }
-func start(t *testing.T, root string, semantic bool, excludes ...string) *engine {
+
+func open(t *testing.T, root string, excludes ...string) *workspace {
 	t.Helper()
-	addr := freeAddress(t)
-	args := []string{"serve", "--root", root, "--http", addr}
-	for _, exclude := range excludes {
-		args = append(args, "--exclude", exclude)
-	}
-	if semantic {
-		model := os.Getenv("CX_EMBED_MODEL")
-		if model == "" {
-			model = "qwen3-embedding:0.6b"
-		}
-		embedURL := os.Getenv("CX_EMBED_URL")
-		if embedURL == "" {
-			embedURL = "http://127.0.0.1:11434"
-		}
-		args = append(args, "--embed-url", embedURL, "--embed-model", model)
-	}
-	cmd := exec.Command(binary(t), args...)
-	logs := &bytes.Buffer{}
-	cmd.Stdout = logs
-	cmd.Stderr = logs
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	e := &engine{root: root, endpoint: "http://" + addr, command: cmd, logs: logs}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	deadline := time.Now().Add(25 * time.Second)
-	if timeout := os.Getenv("CX_READY_TIMEOUT"); timeout != "" {
-		duration, err := time.ParseDuration(timeout)
-		if err != nil {
-			t.Fatalf("invalid CX_READY_TIMEOUT: %v", err)
-		}
-		deadline = time.Now().Add(duration)
-	}
-	for time.Now().Before(deadline) {
-		var status statusReply
-		if e.get("/v1/status", &status) == nil && status.Status == "ready" {
-			return e
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("engine did not become lexical-ready; logs:\n%s", logs.String())
-	return nil
+	return &workspace{root: root, excludes: excludes}
 }
-func (e *engine) get(path string, out any) error {
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(e.endpoint + path)
+
+func (w *workspace) extra() []string {
+	var out []string
+	for _, e := range w.excludes {
+		out = append(out, "--exclude", e)
+	}
+	return out
+}
+
+func (w *workspace) run(t *testing.T, args ...string) []byte {
+	t.Helper()
+	final := append([]string{}, args...)
+	final = append(final, "--root", w.root)
+	final = append(final, w.extra()...)
+	cmd := exec.Command(binary(t), final...)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		t.Fatalf("cx %v failed: %v; output=%s", args, err, out)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("status %d", resp.StatusCode)
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return out
 }
-func (e *engine) status(t *testing.T) statusReply {
+
+func (w *workspace) runJSON(t *testing.T, dest any, args ...string) {
+	t.Helper()
+	out := w.run(t, append(args, "--json")...)
+	if err := json.Unmarshal(out, dest); err != nil {
+		t.Fatalf("cx %v JSON: %v; output=%s", args, err, out)
+	}
+}
+
+func (w *workspace) status(t *testing.T) statusReply {
 	t.Helper()
 	var v statusReply
-	if err := e.get("/v1/status", &v); err != nil {
-		t.Fatal(err)
+	w.runJSON(t, &v, "status")
+	return v
+}
+
+func (w *workspace) search(t *testing.T, query string) []result {
+	t.Helper()
+	var v searchReply
+	w.runJSON(t, &v, "find", query)
+	return v.Results
+}
+
+func (w *workspace) references(t *testing.T, symbol string) refReply {
+	t.Helper()
+	var v refReply
+	w.runJSON(t, &v, "references", symbol)
+	return v
+}
+
+func (w *workspace) endpoints(t *testing.T, method, path string) endpointReply {
+	t.Helper()
+	args := []string{"endpoints"}
+	if method != "" {
+		args = append(args, "--method", method)
+	}
+	if path != "" {
+		args = append(args, "--path", path)
+	}
+	var v endpointReply
+	w.runJSON(t, &v, args...)
+	return v
+}
+
+func (w *workspace) beans(t *testing.T, typ string) beanReply {
+	t.Helper()
+	var v beanReply
+	w.runJSON(t, &v, "beans", "--type", typ)
+	return v
+}
+
+func (w *workspace) config(t *testing.T, key, profile string) configReply {
+	t.Helper()
+	args := []string{"config", "--key", key}
+	if profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	var v configReply
+	w.runJSON(t, &v, args...)
+	return v
+}
+
+func (w *workspace) context(t *testing.T, symbol string) map[string]any {
+	t.Helper()
+	var v map[string]any
+	out := w.run(t, "context", "--symbol", symbol, "--budget", "500")
+	if err := json.Unmarshal(out, &v); err != nil {
+		t.Fatalf("cx context JSON: %v; output=%s", err, out)
 	}
 	return v
 }
-func (e *engine) search(t *testing.T, query, mode string) []result {
-	t.Helper()
-	p := "/v1/search?q=" + url.QueryEscape(query) + "&mode=" + url.QueryEscape(mode) + "&limit=10"
-	var v searchReply
-	if err := e.get(p, &v); err != nil {
-		t.Fatalf("search %q mode %s: %v; logs=%s", query, mode, err, e.logs.String())
-	}
-	return v.Results
-}
-func (e *engine) rawStatus(path string) (int, error) {
-	response, err := http.Get(e.endpoint + path)
-	if err != nil {
-		return 0, err
-	}
-	defer response.Body.Close()
-	return response.StatusCode, nil
-}
-func (e *engine) waitSemantic(t *testing.T) {
-	t.Helper()
-	deadline := time.Now().Add(4 * time.Minute)
-	for time.Now().Before(deadline) {
-		s := e.status(t)
-		if s.SemanticState == "ready" {
-			return
-		}
-		if s.SemanticState == "unavailable" {
-			t.Fatalf("embedding provider unavailable; run ollama serve and ollama pull qwen3-embedding:0.6b; logs:\n%s", e.logs.String())
-		}
-		time.Sleep(400 * time.Millisecond)
-	}
-	t.Fatalf("semantic indexing did not become ready; logs:\n%s", e.logs.String())
-}
+
 func hasPath(results []result, suffix string) bool {
 	for _, r := range results {
 		if strings.HasSuffix(r.Path, suffix) && r.Line > 0 {
@@ -234,15 +217,4 @@ func requireNoPath(t *testing.T, results []result, suffix string) {
 	if hasPath(results, suffix) {
 		t.Fatalf("excluded or deleted file %q appeared: %#v", suffix, results)
 	}
-}
-func poll(t *testing.T, desc string, ok func() bool) {
-	t.Helper()
-	end := time.Now().Add(8 * time.Second)
-	for time.Now().Before(end) {
-		if ok() {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", desc)
 }

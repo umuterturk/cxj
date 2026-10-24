@@ -6,70 +6,50 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"testing"
-	"time"
 )
 
 func TestP6CreateModifyDeleteAndRenameAreVisible(t *testing.T) {
 	root := t.TempDir()
 	put(t, root, "LiveAlpha.java", "class LiveAlpha {}\n")
-	e := start(t, root, false)
-	requirePath(t, e.search(t, "LiveAlpha", "lexical"), "LiveAlpha.java")
+	e := open(t, root)
+	requirePath(t, e.search(t, "LiveAlpha"), "LiveAlpha.java")
+
 	put(t, root, "LiveAlpha.java", "class LiveBeta {}\n")
-	poll(t, "modified Java symbol", func() bool { return hasPath(e.search(t, "LiveBeta", "lexical"), "LiveAlpha.java") })
-	poll(t, "old symbol removal", func() bool { return !hasPath(e.search(t, "LiveAlpha", "lexical"), "LiveAlpha.java") })
+	if !hasPath(e.search(t, "LiveBeta"), "LiveAlpha.java") {
+		t.Fatal("modified Java symbol not visible on next run")
+	}
+	if hasPath(e.search(t, "LiveAlpha"), "LiveAlpha.java") {
+		t.Fatal("old symbol survived edit")
+	}
+
 	if err := os.Rename(filepath.Join(root, "LiveAlpha.java"), filepath.Join(root, "Renamed.java")); err != nil {
 		t.Fatal(err)
 	}
-	poll(t, "renamed path", func() bool { return hasPath(e.search(t, "LiveBeta", "lexical"), "Renamed.java") })
+	if !hasPath(e.search(t, "LiveBeta"), "Renamed.java") {
+		t.Fatal("renamed path not visible on next run")
+	}
+
 	if err := os.Remove(filepath.Join(root, "Renamed.java")); err != nil {
 		t.Fatal(err)
 	}
-	poll(t, "deleted symbol removal", func() bool { return !hasPath(e.search(t, "LiveBeta", "lexical"), "Renamed.java") })
+	if hasPath(e.search(t, "LiveBeta"), "Renamed.java") {
+		t.Fatal("deleted symbol still visible")
+	}
 }
+
 func TestP6UpdatesExcludedFilesWithoutLeaks(t *testing.T) {
 	root := t.TempDir()
 	put(t, root, "Generated/Ignore.java", "class Ignore {}\n")
-	e := start(t, root, false, "Generated/**")
+	e := open(t, root, "Generated/**")
 	put(t, root, "Generated/NewDecoy.java", "class NewDecoy {}\n")
-	time.Sleep(400 * time.Millisecond)
-	requireNoPath(t, e.search(t, "NewDecoy", "lexical"), "NewDecoy.java")
+	requireNoPath(t, e.search(t, "NewDecoy"), "NewDecoy.java")
 }
-func TestP6ConcurrentQueriesSeeConsistentIndex(t *testing.T) {
-	root := t.TempDir()
-	put(t, root, "ConcurrentSearch.java", "class ConcurrentSearch { void concurrentMethod() {} }\n")
-	e := start(t, root, false)
-	var wg sync.WaitGroup
-	failures := make(chan string, 100)
-	for worker := 0; worker < 12; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 30; i++ {
-				var response searchReply
-				if err := e.get("/v1/search?q=ConcurrentSearch&mode=lexical", &response); err != nil {
-					failures <- err.Error()
-					return
-				}
-				if !hasPath(response.Results, "ConcurrentSearch.java") {
-					failures <- "inconsistent or missing result"
-					return
-				}
-			}
-		}()
-	}
-	wg.Wait()
-	close(failures)
-	for msg := range failures {
-		t.Errorf("query failed: %s", msg)
-	}
-}
+
 func TestP6CLIFindReturnsRealSource(t *testing.T) {
 	root := t.TempDir()
 	put(t, root, "ToolSmoke.java", "class ToolSmoke {}\n")
-	e := start(t, root, false)
-	cmd := exec.Command(binary(t), "find", "ToolSmoke", "--server", e.endpoint, "--mode", "lexical", "--json")
+	cmd := exec.Command(binary(t), "find", "ToolSmoke", "--root", root, "--json")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("cx find failed: %v; output=%s", err, out)
@@ -83,30 +63,5 @@ func TestP6CLIFindReturnsRealSource(t *testing.T) {
 	}
 	if !hasPath(reply.Results, "ToolSmoke.java") {
 		t.Fatalf("expected ToolSmoke.java in results: %#v", reply.Results)
-	}
-}
-func TestP6ModifiedJavaGetsNewSemanticVector(t *testing.T) {
-	root := t.TempDir()
-	put(t, root, "src/BankDocumentSigner.java", `class BankDocumentSigner {
- // Sign documents with a digital certificate after validation.
- void signPaper() {}
-}`)
-	e := start(t, root, true)
-	e.waitSemantic(t)
-	initialSemanticGeneration := e.status(t).SemanticGeneration
-	put(t, root, "src/BankDocumentSigner.java", `class BankDocumentSigner {
- // Reconcile inventory inventory counts in cold warehouses.
- void reconcileStocks() {}
-}`)
-	poll(t, "semantic reindexing after Java edit", func() bool {
-		s := e.status(t)
-		if s.SemanticState != "ready" || s.SemanticGeneration <= initialSemanticGeneration {
-			return false
-		}
-		return hasPath(e.search(t, "warehouse inventory stock reconciliation", "semantic"), "BankDocumentSigner.java")
-	})
-	// A changed class must not still claim an old exact method.
-	if containsSymbol(e.search(t, "BankDocumentSigner.signPaper", "lexical"), "signPaper") {
-		t.Fatal("stale Java symbol survived edit")
 	}
 }

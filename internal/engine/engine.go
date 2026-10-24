@@ -1,67 +1,43 @@
-// Package engine owns the in-RAM workspace snapshot served over HTTP.
+// Package engine owns a one-shot in-RAM workspace snapshot for a CLI invocation.
 package engine
 
 import (
-	"context"
-	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
-	"sync"
-	"time"
 
 	"example.com/cx/internal/config"
-	"example.com/cx/internal/embed"
 	"example.com/cx/internal/index"
 	"example.com/cx/internal/ir"
 	"example.com/cx/internal/java"
 	"example.com/cx/internal/scan"
 	"example.com/cx/internal/spring"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 // Options configure engine opening.
 type Options struct {
-	Excludes   []string
-	EmbedURL   string
-	EmbedModel string
-	Logger     *log.Logger
+	Excludes []string
+	Logger   *log.Logger
 }
 
-// Engine is a single-writer, immutable-read snapshot of the workspace.
+// Engine is an immutable in-RAM snapshot of the workspace.
 type Engine struct {
-	mu       sync.RWMutex
-	root     string
-	excludes []string
-	files    []scan.File
-	stats    scan.Stats
-	gen      int
-	sem      ir.SemanticState
-	semGen   int
-	model    string
-	syms     *index.SymbolIndex
-	text     *index.TextIndex
-	spring   *spring.Index
-	cfg      *config.Index
-	store    *embed.Store
-	prov     *embed.Provider
-	chunks   []embed.Chunk
-	log      *log.Logger
-	watcher  *fsnotify.Watcher
+	root   string
+	stats  scan.Stats
+	gen    int
+	syms   *index.SymbolIndex
+	text   *index.TextIndex
+	spring *spring.Index
+	cfg    *config.Index
 }
 
-// Open scans root, extracts Java + text indexes, and returns a ready lexical engine.
-// When EmbedURL is set, semantic indexing starts in the background.
+// Open scans root and builds lexical, Spring, and config indexes.
 func Open(root string, opts Options) (*Engine, error) {
 	res, err := scan.Scan(root, scan.Options{Excludes: opts.Excludes})
 	if err != nil {
 		return nil, err
-	}
-	logger := opts.Logger
-	if logger == nil {
-		logger = log.Default()
 	}
 	ext := java.NewExtractor()
 	defer ext.Close()
@@ -75,7 +51,6 @@ func Open(root string, opts Options) (*Engine, error) {
 	var cfgFiles []config.FileFacts
 	var bindings []config.Binding
 	var textLines []index.TextLine
-	var chunks []embed.Chunk
 	for _, f := range res.Files {
 		data, err := os.ReadFile(f.AbsPath)
 		if err != nil {
@@ -87,7 +62,6 @@ func Open(root string, opts Options) (*Engine, error) {
 				continue
 			}
 			facts = append(facts, ff)
-			chunks = append(chunks, embed.ChunksFromFacts(ff, data)...)
 			springFacts = append(springFacts, springExt.Extract(f.RelPath, data))
 			bindings = append(bindings, bindExt.ExtractBindings(f.RelPath, data)...)
 			continue
@@ -98,43 +72,15 @@ func Open(root string, opts Options) (*Engine, error) {
 		textLines = append(textLines, splitLinesRedacted(f.RelPath, data)...)
 	}
 
-	e := &Engine{
-		root:     root,
-		excludes: append([]string(nil), opts.Excludes...),
-		files:    res.Files,
-		stats:    res.Stats,
-		gen:      1,
-		sem:      ir.SemanticOff,
-		syms:     index.Build(facts),
-		text:     index.BuildText(textLines),
-		spring:   spring.Build(springFacts),
-		cfg:      config.Build(cfgFiles, bindings),
-		store:    &embed.Store{},
-		chunks:   chunks,
-		log:      logger,
-	}
-
-	if opts.EmbedURL != "" {
-		model := opts.EmbedModel
-		if model == "" {
-			model = "qwen3-embedding:0.6b"
-		}
-		e.model = model
-		e.prov = embed.NewProvider(opts.EmbedURL, model)
-		e.setSemantic(ir.SemanticBuilding)
-		go e.rebuildSemantic(chunks)
-	}
-	e.startWatcher()
-	return e, nil
-}
-
-func (e *Engine) setSemantic(st ir.SemanticState) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.sem = st
-	if st == ir.SemanticReady {
-		e.semGen++
-	}
+	return &Engine{
+		root:   root,
+		stats:  res.Stats,
+		gen:    1,
+		syms:   index.Build(facts),
+		text:   index.BuildText(textLines),
+		spring: spring.Build(springFacts),
+		cfg:    config.Build(cfgFiles, bindings),
+	}, nil
 }
 
 func splitLinesRedacted(path string, data []byte) []index.TextLine {
@@ -150,78 +96,28 @@ func splitLinesRedacted(path string, data []byte) []index.TextLine {
 	return out
 }
 
-// Status implements server.Index.
+// Status reports index counters and current Go heap.
 func (e *Engine) Status() ir.Status {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
 	return ir.Status{
-		Status:             "ready",
-		IndexedFiles:       e.stats.IndexedFiles,
-		IndexedJavaFiles:   e.stats.IndexedJavaFiles,
-		Generation:         e.gen,
-		SemanticState:      e.sem,
-		SemanticGeneration: e.semGen,
-		Model:              e.model,
+		Status:           "ready",
+		IndexedFiles:     e.stats.IndexedFiles,
+		IndexedJavaFiles: e.stats.IndexedJavaFiles,
+		Generation:       e.gen,
+		GoHeapAllocBytes: mem.HeapAlloc,
 	}
 }
 
-// Search implements server.Index.
-func (e *Engine) Search(q, mode string, limit int) (ir.SearchReply, error) {
-	e.mu.RLock()
-	sem := e.sem
-	e.mu.RUnlock()
-
-	switch mode {
-	case "lexical", "":
-		e.mu.RLock()
-		defer e.mu.RUnlock()
-		merged := mergeLexical(e.syms.Search(q, limit), e.text.Search(q, limit), limit)
-		return ir.SearchReply{Results: merged, SemanticState: sem}, nil
-	case "semantic":
-		if sem != ir.SemanticReady {
-			return ir.SearchReply{}, fmt.Errorf("semantic_not_ready")
-		}
-		hits, err := e.semanticSearch(q, limit)
-		if err != nil {
-			return ir.SearchReply{}, err
-		}
-		return ir.SearchReply{Results: hits, SemanticState: sem}, nil
-	case "hybrid":
-		if sem != ir.SemanticReady {
-			return ir.SearchReply{}, fmt.Errorf("semantic_not_ready")
-		}
-		e.mu.RLock()
-		lex := mergeLexical(e.syms.Search(q, limit), e.text.Search(q, limit), limit)
-		e.mu.RUnlock()
-		semHits, err := e.semanticSearch(q, limit)
-		if err != nil {
-			return ir.SearchReply{}, err
-		}
-		var exact []ir.SearchResult
-		for _, r := range lex {
-			if r.Match == ir.MatchExact {
-				exact = append(exact, r)
-			}
-		}
-		merged := embed.RRF(exact, lex, semHits, limit)
-		return ir.SearchReply{Results: merged, SemanticState: sem}, nil
-	default:
-		return ir.SearchReply{}, fmt.Errorf("unknown mode %q", mode)
+// Search runs lexical symbol + text search.
+func (e *Engine) Search(q string, limit int) ir.SearchReply {
+	if limit <= 0 {
+		limit = 10
 	}
-}
-
-func (e *Engine) semanticSearch(q string, limit int) ([]ir.SearchResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	vecs, err := e.prov.Embed(ctx, []string{q})
-	if err != nil {
-		return nil, fmt.Errorf("semantic_not_ready")
+	if limit > 50 {
+		limit = 50
 	}
-	if len(vecs) == 0 {
-		return []ir.SearchResult{}, nil
-	}
-	hits := e.store.Search(vecs[0], limit)
-	return embed.ToResults(hits, ir.MatchSemantic), nil
+	return ir.SearchReply{Results: mergeLexical(e.syms.Search(q, limit), e.text.Search(q, limit), limit)}
 }
 
 func mergeLexical(sym, text []ir.SearchResult, limit int) []ir.SearchResult {
@@ -267,10 +163,8 @@ func rankMatch(m ir.MatchKind) int {
 	}
 }
 
-// References implements server.Index.
+// References looks up symbol uses.
 func (e *Engine) References(symbol string) ir.RefReply {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
 	results := e.syms.References(symbol)
 	if results == nil {
 		results = []ir.RefResult{}
@@ -278,10 +172,8 @@ func (e *Engine) References(symbol string) ir.RefReply {
 	return ir.RefReply{Results: results}
 }
 
-// Endpoints implements server.Index.
+// Endpoints lists Spring HTTP mappings.
 func (e *Engine) Endpoints(method, path string) any {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
 	results := e.spring.Endpoints(method, path)
 	if results == nil {
 		results = []spring.EndpointResult{}
@@ -289,10 +181,8 @@ func (e *Engine) Endpoints(method, path string) any {
 	return map[string]any{"results": results}
 }
 
-// Beans implements server.Index.
+// Beans lists Spring beans for a type.
 func (e *Engine) Beans(typ string) any {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
 	results := e.spring.Beans(typ)
 	if results == nil {
 		results = []spring.BeanResult{}
@@ -300,19 +190,15 @@ func (e *Engine) Beans(typ string) any {
 	return map[string]any{"results": results}
 }
 
-// Context implements server.Index.
+// Context returns bounded symbol context.
 func (e *Engine) Context(symbol string, budget int) any {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
 	return e.spring.Context(symbol, budget)
 }
 
-// Config implements server.Index.
+// Config resolves a configuration key.
 func (e *Engine) Config(key, profile string) any {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
 	return e.cfg.Query(key, profile)
 }
 
-// Root returns the absolute workspace root.
+// Root returns the workspace root used for this snapshot.
 func (e *Engine) Root() string { return e.root }

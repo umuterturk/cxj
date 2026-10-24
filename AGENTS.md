@@ -17,19 +17,19 @@ This replaces all previously issued agent instructions for this project. Use onl
 - Never add SQLite, RocksDB, on-disk vector cache/index, cloud inference, telemetry, or background uploads.
 - Never mark ambiguous Java/Spring call targets as `exact`.
 - Never print or embed secret values that can be identified as credentials/tokens/passwords.
-- Never put an auto-skip in tests because Ollama, PetClinic, network, or tools are missing: fail with actionable setup instructions.
+- Never put an auto-skip in tests because PetClinic, network, or tools are missing: fail with actionable setup instructions.
 - Never silently expand scope to Kotlin or languages other than Java; other text formats are lexical only except Spring config files.
 - Never write source-specific tests that trivially assert the substring the implementation is already given; evaluate real retrieval ranking and relationships.
 
 ## Quality constraints
-- KISS: prefer single writer + immutable read snapshot; add complexity only after failing benchmarks.
-- DRY: one IR, one canonical path normalization, one query schema and one exclusion matcher shared by scanning + watching + indexing.
-- SOLID: parser, embedding provider, search index, Spring resolver, transport each behind a small and *necessary* contract. No excessive abstractions.
+- KISS: prefer one-shot index + query per CLI invocation; add complexity only after failing benchmarks.
+- DRY: one IR, one canonical path normalization, one query schema and one exclusion matcher shared by scanning + indexing.
+- SOLID: parser, search index, Spring resolver each behind a small and *necessary* contract. No excessive abstractions.
 - Clean code: named domain types, explicit errors, deterministic results, context cancellation, bounded concurrency and limits; zero data races.
-- All acceptance tests are **black-box Go tests against the running real binary and real Ollama model** where applicable; no fake providers. Tests may create fixture source files.
+- All acceptance tests are **black-box Go tests against the running real binary**; no fake providers. Tests may create fixture source files.
 
 ## Important setup
-`CX_BIN` points at the built executable (script sets it). `CX_EMBED_URL` defaults to `http://127.0.0.1:11434`; `CX_EMBED_MODEL` defaults to `qwen3-embedding:0.6b`. Phase 3+ requires reachable locally-installed model. Phase 7 requires `PETCLINIC_ROOT` cloned at pinned commit.
+`CX_BIN` points at the built executable (script sets it). Phase 7 requires `PETCLINIC_ROOT` cloned at pinned commit.
 
 ## Context compaction protocol
 At the END of each phase, before any next-phase implementation:

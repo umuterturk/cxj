@@ -1,38 +1,23 @@
-// Package ir holds parser-neutral domain types shared across scan, index, and HTTP.
+// Package ir holds parser-neutral domain types shared across scan, index, and CLI.
 package ir
 
-// SemanticState reports embedding readiness independently of lexical readiness.
-type SemanticState string
-
-const (
-	SemanticOff         SemanticState = "off"
-	SemanticBuilding    SemanticState = "building"
-	SemanticReady       SemanticState = "ready"
-	SemanticUnavailable SemanticState = "unavailable"
-)
-
-// Status is the GET /v1/status payload.
+// Status is the cx status --json payload.
 type Status struct {
-	Status             string        `json:"status"`
-	IndexedFiles       int           `json:"indexed_files"`
-	IndexedJavaFiles   int           `json:"indexed_java_files"`
-	Generation         int           `json:"generation"`
-	SemanticState      SemanticState `json:"semantic_state"`
-	SemanticGeneration int           `json:"semantic_generation"`
-	Model              string        `json:"model,omitempty"`
-	GoHeapAllocBytes   uint64        `json:"go_heap_alloc_bytes"`
+	Status           string `json:"status"`
+	IndexedFiles     int    `json:"indexed_files"`
+	IndexedJavaFiles int    `json:"indexed_java_files"`
+	Generation       int    `json:"generation"`
+	GoHeapAllocBytes uint64 `json:"go_heap_alloc_bytes"`
 }
 
 // MatchKind classifies how a search hit was produced.
 type MatchKind string
 
 const (
-	MatchExact    MatchKind = "exact"
-	MatchPrefix   MatchKind = "prefix"
-	MatchFuzzy    MatchKind = "fuzzy"
-	MatchText     MatchKind = "text"
-	MatchSemantic MatchKind = "semantic"
-	MatchHybrid   MatchKind = "hybrid"
+	MatchExact  MatchKind = "exact"
+	MatchPrefix MatchKind = "prefix"
+	MatchFuzzy  MatchKind = "fuzzy"
+	MatchText   MatchKind = "text"
 )
 
 // ResultKind classifies the indexed entity.
@@ -46,7 +31,7 @@ const (
 	KindConfig ResultKind = "config"
 )
 
-// SearchResult is one hit in GET /v1/search.
+// SearchResult is one hit in cx find --json.
 type SearchResult struct {
 	Path    string     `json:"path"`
 	Line    int        `json:"line"`
@@ -57,8 +42,7 @@ type SearchResult struct {
 	Snippet string     `json:"snippet"`
 }
 
-// SearchReply is the GET /v1/search payload.
+// SearchReply is the cx find --json payload.
 type SearchReply struct {
-	Results       []SearchResult `json:"results"`
-	SemanticState SemanticState  `json:"semantic_state"`
+	Results []SearchResult `json:"results"`
 }
