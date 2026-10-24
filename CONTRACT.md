@@ -9,7 +9,13 @@ cx serve --root /abs/workspace --http 127.0.0.1:8765 [--exclude 'generated/**'] 
   [--embed-url http://127.0.0.1:11434 --embed-model qwen3-embedding:0.6b]
 # omit embed flags => semantic is off for phases 0..2; with embed flags it is on
 cx find 'Payment.process' --server http://127.0.0.1:8765 --mode hybrid --json
-cx mcp --root /abs/workspace [--embed-url ... --embed-model ...]
+cx references 'OwnerController' --server http://127.0.0.1:8765 --json
+cx endpoints --method GET --path /owners --server http://127.0.0.1:8765 --json
+cx beans --type SomeType --server http://127.0.0.1:8765 --json
+cx config --key a.b.c --profile prod --server http://127.0.0.1:8765 --json
+cx context --symbol Qualified.name --budget 500 --server http://127.0.0.1:8765
+cx status --server http://127.0.0.1:8765 --json
+# Agent transport is CLI + skills/cx-cli/SKILL.md (no MCP).
 ```
 
 HTTP only binds to loopback; never run a public server. `GET /v1/status` returns when lexical index is ready, with semantic status independently reported. `POST /v1/shutdown` is **not** required. Tests manage child processes.

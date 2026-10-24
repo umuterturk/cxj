@@ -16,7 +16,7 @@ Build `cx`, a **fully RAM-resident index** for one local workspace (up to 500,00
 - Go: supported stable Go version (the supplied Go acceptance suite uses only the standard library).
 - Java parsing: official Tree-sitter Go bindings and Java grammar. Core index independent of parser.
 - Embeddings: **Ollama** on localhost with `qwen3-embedding:0.6b` by default; this is a real multilingual/code embedding model, not a hardcoded dictionary. `ollama pull qwen3-embedding:0.6b` before Phase 3.
-- Host-local HTTP API for acceptance tests; MCP stdio adapter later.
+- Host-local HTTP API for acceptance tests; agent transport is the CLI (`skills/cx-cli/SKILL.md`).
 - Main real-world validation repo: https://github.com/spring-projects/spring-petclinic . Run `./scripts/prepare-petclinic.sh`, then pin its output commit in `STATE.md` in Phase 7. The primary acceptance suite uses controlled Java fixtures so upstream changes cannot make tests pass/fail unpredictably.
 
 ## Phase plans (all self-contained)
@@ -28,7 +28,7 @@ Build `cx`, a **fully RAM-resident index** for one local workspace (up to 500,00
 | 3 | `plans/03-embeddings.md` | Local semantic + multilingual + hybrid search |
 | 4 | `plans/04-spring.md` | Endpoints, beans, DI, transactions, repository discovery |
 | 5 | `plans/05-config.md` | YAML/properties, profiles, Java bindings, secrets |
-| 6 | `plans/06-live-mcp.md` | Incremental edits, concurrency, MCP |
+| 6 | `plans/06-live-mcp.md` | Incremental edits, concurrency, CLI |
 | 7 | `plans/07-benchmark.md` | 500K LOC, real PetClinic, reliability/performance |
 
 ## Important decisions
@@ -45,4 +45,4 @@ Build `cx`, a **fully RAM-resident index** for one local workspace (up to 500,00
 - Model: https://ollama.com/library/qwen3-embedding:0.6b
 - Spring Boot config: https://docs.spring.io/spring-boot/reference/features/external-config.html
 - Agent Skills: https://agentskills.io/specification
-- MCP stdio: https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
+- Agent CLI skill: `skills/cx-cli/SKILL.md`

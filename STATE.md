@@ -6,7 +6,7 @@
 - Last acceptance command/result:
   - `./scripts/acceptance.sh 7` → PASS
   - `CX_RACE=1 ./scripts/acceptance.sh 7` → PASS (no races)
-- Engine: full MVP — lexical/fuzzy/text, Spring routes/beans/config, Ollama embeddings, live watch, MCP/`cx find`
+- Engine: full MVP — lexical/fuzzy/text, Spring routes/beans/config, Ollama embeddings, live watch, CLI (`find|references|endpoints|beans|config|context|status`); MCP removed (`skills/cx-cli/SKILL.md`)
 - Embedding model: `qwen3-embedding:0.6b` via local Ollama
 - Reference repository pin: `spring-projects/spring-petclinic` @ `500158f732419217507c7656904b8e6aa1bcc0d6` (`PETCLINIC_ROOT=third_party/spring-petclinic`; see `reports/petclinic.env`)
 - Benchmark: `reports/benchmark.json` + `reports/benchmark-notes.md` (measured; regenerate via `./scripts/benchmark.sh`)

@@ -9,4 +9,4 @@
 - Benchmark report present with measured fields (`./scripts/benchmark.sh`)
 
 ## Product surface
-`cx serve` / `cx mcp` / `cx find`; HTTP `/v1/{status,search,references,endpoints,beans,context,config}`; semantic via Ollama; live fsnotify reindex; no on-disk index.
+`cx serve` + CLI (`find`, `references`, `endpoints`, `beans`, `config`, `context`, `status`); agent skill `skills/cx-cli/SKILL.md` (MCP removed). HTTP `/v1/*`; semantic via Ollama; live fsnotify reindex; no on-disk index.

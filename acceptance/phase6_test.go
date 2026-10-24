@@ -1,14 +1,11 @@
 package acceptance
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,64 +65,24 @@ func TestP6ConcurrentQueriesSeeConsistentIndex(t *testing.T) {
 		t.Errorf("query failed: %s", msg)
 	}
 }
-func TestP6MCPStdioAdvertisesAndExecutesFindTool(t *testing.T) {
+func TestP6CLIFindReturnsRealSource(t *testing.T) {
 	root := t.TempDir()
 	put(t, root, "ToolSmoke.java", "class ToolSmoke {}\n")
-	cmd := exec.Command(binary(t), "mcp", "--root", root)
-	in, err := cmd.StdinPipe()
+	e := start(t, root, false)
+	cmd := exec.Command(binary(t), "find", "ToolSmoke", "--server", e.endpoint, "--mode", "lexical", "--json")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("cx find failed: %v; output=%s", err, out)
 	}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
+	if !bytes.Contains(out, []byte("ToolSmoke.java")) {
+		t.Fatalf("cx find did not return real source: %s", out)
 	}
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
+	var reply searchReply
+	if err := json.Unmarshal(out, &reply); err != nil {
+		t.Fatalf("cx find --json must emit search JSON: %v; output=%s", err, out)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	reader := bufio.NewReader(out)
-	send := func(v any) {
-		b, _ := json.Marshal(v)
-		_, err := fmt.Fprintln(in, string(b))
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	receive := func() map[string]any {
-		ch := make(chan string, 1)
-		go func() { line, _ := reader.ReadString('\n'); ch <- line }()
-		select {
-		case s := <-ch:
-			var msg map[string]any
-			if err := json.Unmarshal([]byte(strings.TrimSpace(s)), &msg); err != nil {
-				t.Fatalf("MCP stdout must contain only JSON-RPC, got %q; stderr=%s", s, stderr.String())
-			}
-			return msg
-		case <-time.After(25 * time.Second):
-			t.Fatalf("MCP stdio response timeout; stderr=%s", stderr.String())
-		}
-		return nil
-	}
-	send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "cx-acceptance", "version": "0.1"}}})
-	init := receive()
-	if init["result"] == nil {
-		t.Fatalf("MCP initialize did not succeed: %+v", init)
-	}
-	send(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
-	send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": map[string]any{}})
-	listed := receive()
-	body, _ := json.Marshal(listed)
-	if !bytes.Contains(body, []byte(`"find"`)) {
-		t.Fatalf("MCP find tool not advertised: %s", body)
-	}
-	send(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "find", "arguments": map[string]any{"query": "ToolSmoke"}}})
-	called := receive()
-	body, _ = json.Marshal(called)
-	if !bytes.Contains(body, []byte("ToolSmoke.java")) {
-		t.Fatalf("MCP tool did not return real source: %s", body)
+	if !hasPath(reply.Results, "ToolSmoke.java") {
+		t.Fatalf("expected ToolSmoke.java in results: %#v", reply.Results)
 	}
 }
 func TestP6ModifiedJavaGetsNewSemanticVector(t *testing.T) {
