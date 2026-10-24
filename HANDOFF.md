@@ -1,13 +1,12 @@
 # Compact handoff
 
-**Phase 0 PASSED.** `./scripts/acceptance.sh 0` → all `TestP0*` ok.
+**Phase 1 PASSED.** `./scripts/acceptance.sh 1` → all `TestP0*` + `TestP1*` ok.
 
 ## Verified
-- `cx serve --root --http` binds loopback only; invalid root exits nonzero before listen.
-- `GET /v1/status` reports `ready`, file counters, `semantic_state=off`; no on-disk index artifacts.
-- `GET /v1/search` returns empty lexical results (Phase 1 fills this).
-- Packages: `cmd/cx`, `internal/ir`, `internal/scan`, `internal/engine`, `internal/server`.
-- Fixed `scripts/acceptance.sh` empty-array/`set -u` crash so the mandated gate script runs.
+- Java classes/methods indexed with real 1-based lines; overloads keep distinct locations.
+- Lexical search matches `Owner.method` and simple names (exact/prefix).
+- `/v1/references` does not mark interface dispatch as exact to concrete impls.
+- Deps: `github.com/tree-sitter/go-tree-sitter v0.25.0`, `tree-sitter-java v0.23.5` (CGO).
 
 ## Next
-Implement Phase 1 per `plans/01-java-index.md` and `skills/java-index/SKILL.md`. Tree-sitter Java → IR definitions; lexical exact/prefix symbol search; `/v1/references` without fabricating exact interface dispatch. Gate: `./scripts/acceptance.sh 1`.
+Phase 2: text lexical search, `.cxignore` / `--exclude`, fuzzy/exact ranking, UTF-8/size skips. Plan: `plans/02-text-exclusions.md`. Gate: `./scripts/acceptance.sh 2`.

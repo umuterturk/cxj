@@ -15,10 +15,11 @@ import (
 	"example.com/cx/internal/ir"
 )
 
-// Index is the minimal read surface the HTTP layer needs in Phase 0.
+// Index is the minimal read surface the HTTP layer needs.
 type Index interface {
 	Status() ir.Status
 	Search(q, mode string, limit int) (ir.SearchReply, error)
+	References(symbol string) ir.RefReply
 }
 
 // Server is the loopback JSON API.
@@ -48,6 +49,7 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/status", s.handleStatus)
 	mux.HandleFunc("/v1/search", s.handleSearch)
+	mux.HandleFunc("/v1/references", s.handleReferences)
 	srv := &http.Server{Handler: mux}
 	s.log.Printf("listening on http://%s", ln.Addr().String())
 	return srv.Serve(ln)
@@ -109,6 +111,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, reply)
+}
+
+func (s *Server) handleReferences(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	symbol := r.URL.Query().Get("symbol")
+	writeJSON(w, http.StatusOK, s.index.References(symbol))
 }
 
 func isSemanticNotReady(err error) bool {
