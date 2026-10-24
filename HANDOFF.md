@@ -1,11 +1,11 @@
 # Compact handoff
 
-**Phase 5 PASSED.** `./scripts/acceptance.sh 5` → all ok.
+**Phase 6 PASSED.** `./scripts/acceptance.sh 6` and `CX_RACE=1 ./scripts/acceptance.sh 6` ok.
 
 ## Verified
-- Profile-aware YAML/properties definitions; placeholders → `resolution=external`.
-- Java bindings via `@Value`, `@ConfigurationProperties` (relaxed), `@ConditionalOnProperty`.
-- Secrets never returned; excluded config invisible; local `spring.config.import` overrides importer; multi-doc `on-profile` selection.
+- Create/modify/rename/delete reflected live; excluded paths stay out.
+- Concurrent lexical queries consistent; MCP initialize/tools/list/tools/call(find) works on stdio.
+- Java edits re-embed and bump semantic generation; stale symbols removed.
 
 ## Next
-Phase 6: live reindex on edits, concurrency, MCP stdio, `cx find`. Plan: `plans/06-live-mcp.md`. Gate: `./scripts/acceptance.sh 6`.
+Phase 7: PetClinic pin + 500K LOC reliability/perf gates. Plan: `plans/07-benchmark.md`. Gate: `./scripts/acceptance.sh 7`. Run `./scripts/prepare-petclinic.sh` and record commit in STATE.

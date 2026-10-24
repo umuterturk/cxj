@@ -18,6 +18,8 @@ import (
 	"example.com/cx/internal/java"
 	"example.com/cx/internal/scan"
 	"example.com/cx/internal/spring"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // Options configure engine opening.
@@ -30,22 +32,24 @@ type Options struct {
 
 // Engine is a single-writer, immutable-read snapshot of the workspace.
 type Engine struct {
-	mu     sync.RWMutex
-	root   string
-	files  []scan.File
-	stats  scan.Stats
-	gen    int
-	sem    ir.SemanticState
-	semGen int
-	model  string
-	syms   *index.SymbolIndex
-	text   *index.TextIndex
-	spring *spring.Index
-	cfg    *config.Index
-	store  *embed.Store
-	prov   *embed.Provider
-	chunks []embed.Chunk
-	log    *log.Logger
+	mu       sync.RWMutex
+	root     string
+	excludes []string
+	files    []scan.File
+	stats    scan.Stats
+	gen      int
+	sem      ir.SemanticState
+	semGen   int
+	model    string
+	syms     *index.SymbolIndex
+	text     *index.TextIndex
+	spring   *spring.Index
+	cfg      *config.Index
+	store    *embed.Store
+	prov     *embed.Provider
+	chunks   []embed.Chunk
+	log      *log.Logger
+	watcher  *fsnotify.Watcher
 }
 
 // Open scans root, extracts Java + text indexes, and returns a ready lexical engine.
@@ -95,18 +99,19 @@ func Open(root string, opts Options) (*Engine, error) {
 	}
 
 	e := &Engine{
-		root:   root,
-		files:  res.Files,
-		stats:  res.Stats,
-		gen:    1,
-		sem:    ir.SemanticOff,
-		syms:   index.Build(facts),
-		text:   index.BuildText(textLines),
-		spring: spring.Build(springFacts),
-		cfg:    config.Build(cfgFiles, bindings),
-		store:  &embed.Store{},
-		chunks: chunks,
-		log:    logger,
+		root:     root,
+		excludes: append([]string(nil), opts.Excludes...),
+		files:    res.Files,
+		stats:    res.Stats,
+		gen:      1,
+		sem:      ir.SemanticOff,
+		syms:     index.Build(facts),
+		text:     index.BuildText(textLines),
+		spring:   spring.Build(springFacts),
+		cfg:      config.Build(cfgFiles, bindings),
+		store:    &embed.Store{},
+		chunks:   chunks,
+		log:      logger,
 	}
 
 	if opts.EmbedURL != "" {
@@ -117,8 +122,9 @@ func Open(root string, opts Options) (*Engine, error) {
 		e.model = model
 		e.prov = embed.NewProvider(opts.EmbedURL, model)
 		e.setSemantic(ir.SemanticBuilding)
-		go e.buildSemantic()
+		go e.rebuildSemantic(chunks)
 	}
+	e.startWatcher()
 	return e, nil
 }
 
@@ -129,43 +135,6 @@ func (e *Engine) setSemantic(st ir.SemanticState) {
 	if st == ir.SemanticReady {
 		e.semGen++
 	}
-}
-
-func (e *Engine) buildSemantic() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	if err := e.prov.Ping(ctx); err != nil {
-		e.log.Printf("embedding provider unavailable: %v", err)
-		e.setSemantic(ir.SemanticUnavailable)
-		return
-	}
-	const batch = 8
-	for i := 0; i < len(e.chunks); i += batch {
-		if ctx.Err() != nil {
-			e.setSemantic(ir.SemanticUnavailable)
-			return
-		}
-		end := i + batch
-		if end > len(e.chunks) {
-			end = len(e.chunks)
-		}
-		part := e.chunks[i:end]
-		inputs := make([]string, len(part))
-		for j, c := range part {
-			inputs[j] = c.Text
-		}
-		vecs, err := e.prov.Embed(ctx, inputs)
-		if err != nil {
-			e.log.Printf("embed batch failed: %v", err)
-			e.setSemantic(ir.SemanticUnavailable)
-			return
-		}
-		for j, v := range vecs {
-			e.store.Add(part[j], v)
-		}
-	}
-	e.setSemantic(ir.SemanticReady)
-	e.log.Printf("semantic index ready: %d chunks", e.store.Len())
 }
 
 func splitLinesRedacted(path string, data []byte) []index.TextLine {
