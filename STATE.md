@@ -1,14 +1,13 @@
 # CURRENT STATE — CANONICAL CHECKPOINT
 
-- Current phase: **3** (next to implement)
-- Status: **Phase 2 PASSED**
-- Last verified passed phase: **2**
-- Last acceptance command/result: `./scripts/acceptance.sh 2` → PASS (`TestP0*`..`TestP2*` all ok)
-- Engine: exclusions (`internal/exclude` + `.cxignore`/`--exclude`/defaults), text line index, fuzzy symbol search (bounded Levenshtein), exact>prefix>fuzzy>text ranking
-- Embedding model: planned `qwen3-embedding:0.6b` via Ollama; not wired yet
+- Current phase: **4** (next to implement)
+- Status: **Phase 3 PASSED**
+- Last verified passed phase: **3**
+- Last acceptance command/result: `./scripts/acceptance.sh 3` → PASS (`TestP0*`..`TestP3*`; semantic recall 8/8 held-out concepts)
+- Embeddings: Ollama `qwen3-embedding:0.6b` at `http://127.0.0.1:11434`; float32 RAM store; RRF hybrid; 503 when not ready
 - Reference repository pin: **not selected** (Phase 7)
-- Architectural decisions: one Matcher shared by scan; no symlink follow; binary/oversize skipped before index; no synonym dictionary
-- Known limitations: no embeddings/hybrid, no Spring/config, no live watch/MCP
-- Next action: Read `plans/03-embeddings.md` + `skills/semantic-search/SKILL.md`, implement Phase 3, run `./scripts/acceptance.sh 3` (requires local Ollama + model).
+- Architectural decisions: lexical ready first; background embed batches; exclusions apply before chunking; no on-disk vectors
+- Known limitations: no Spring endpoints/beans, no config intelligence, no live watch/MCP
+- Next action: Read `plans/04-spring.md` + `skills/spring-config/SKILL.md`, implement Phase 4, run `./scripts/acceptance.sh 4`.
 
 This file is rewritten after every gate. Do not treat any plan file as proof of implementation completion.

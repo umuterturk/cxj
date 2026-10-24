@@ -1,11 +1,11 @@
 # Compact handoff
 
-**Phase 2 PASSED.** `./scripts/acceptance.sh 2` → `TestP0*`..`TestP2*` ok.
+**Phase 3 PASSED.** `./scripts/acceptance.sh 3` → all ok; semantic 8/8 + multilingual TR≥2.
 
 ## Verified
-- Fuzzy typos (edit distance) find symbols; never labeled exact; exact outranks fuzzy.
-- UTF-8 text lines searchable with `kind=text`; binaries/oversized skipped (`indexed_files=0` in that fixture).
-- `--exclude`, `.cxignore`, and default `target`/`build`/… applied before indexing.
+- `--embed-url/--embed-model` enables background indexing; `semantic_state` building→ready|unavailable.
+- Semantic/hybrid return 503 when off/unavailable; hybrid preserves exact identifier rank.
+- Excluded Java absent from semantic results. Host needs `ollama serve` + `qwen3-embedding:0.6b`.
 
 ## Next
-Phase 3: real Ollama embeddings (`qwen3-embedding:0.6b`), semantic + hybrid search, 503 when not ready. Plan: `plans/03-embeddings.md`. Gate: `./scripts/acceptance.sh 3`. Ensure `ollama serve` and model pulled first.
+Phase 4: Spring endpoints, beans, DI graph. Plan: `plans/04-spring.md`. Gate: `./scripts/acceptance.sh 4`.
