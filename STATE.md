@@ -1,14 +1,14 @@
 # CURRENT STATE — CANONICAL CHECKPOINT
 
-- Current phase: **2** (next to implement)
-- Status: **Phase 1 PASSED**
-- Last verified passed phase: **1**
-- Last acceptance command/result: `./scripts/acceptance.sh 1` → PASS (`TestP0*` + `TestP1*` all ok)
-- Engine: Tree-sitter Java (`go-tree-sitter` v0.25.0, `tree-sitter-java` v0.23.5) → `internal/java` FileFacts → `internal/index` RAM symbol/ref lookup; `GET /v1/references`
-- Embedding model: planned `qwen3-embedding:0.6b`; semantic still `off`
+- Current phase: **3** (next to implement)
+- Status: **Phase 2 PASSED**
+- Last verified passed phase: **2**
+- Last acceptance command/result: `./scripts/acceptance.sh 2` → PASS (`TestP0*`..`TestP2*` all ok)
+- Engine: exclusions (`internal/exclude` + `.cxignore`/`--exclude`/defaults), text line index, fuzzy symbol search (bounded Levenshtein), exact>prefix>fuzzy>text ranking
+- Embedding model: planned `qwen3-embedding:0.6b` via Ollama; not wired yet
 - Reference repository pin: **not selected** (Phase 7)
-- Architectural decisions: parser-neutral IR; calls/implements never marked exact for virtual dispatch; exact > prefix search ranking; deterministic path/line/symbol ties
-- Known limitations: no fuzzy/text search, exclusions unused, no Spring/config/embeddings
-- Next action: Read `plans/02-text-exclusions.md` + `skills/files-exclusions/SKILL.md`, implement Phase 2, run `./scripts/acceptance.sh 2`.
+- Architectural decisions: one Matcher shared by scan; no symlink follow; binary/oversize skipped before index; no synonym dictionary
+- Known limitations: no embeddings/hybrid, no Spring/config, no live watch/MCP
+- Next action: Read `plans/03-embeddings.md` + `skills/semantic-search/SKILL.md`, implement Phase 3, run `./scripts/acceptance.sh 3` (requires local Ollama + model).
 
 This file is rewritten after every gate. Do not treat any plan file as proof of implementation completion.

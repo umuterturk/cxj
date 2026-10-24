@@ -229,27 +229,115 @@ func matchDef(q string, d ir.Definition) (ir.MatchKind, float64) {
 			candidates = append(candidates, d.Owner[i+1:]+"."+d.Name)
 		}
 	}
+	ql := strings.ToLower(q)
 	for _, c := range candidates {
-		if c == q {
+		if strings.EqualFold(c, q) {
 			return ir.MatchExact, 1.0
 		}
-	}
-	for _, c := range candidates {
-		if strings.HasPrefix(c, q) || strings.HasPrefix(q, c) {
-			// Prefer real prefix of the stored symbol.
-			if strings.HasPrefix(c, q) {
-				return ir.MatchPrefix, float64(len(q)) / float64(len(c)+1)
-			}
-		}
-	}
-	// Query Owner.method against Owner.method variants already covered;
-	// also allow simple suffix match as prefix-style: "InvoiceLedger" vs "com.acme.InvoiceLedger"
-	if strings.HasSuffix(d.Qualified, "."+q) || d.Name == q {
-		if d.Name == q || strings.HasSuffix(d.Qualified, "."+q) {
+		if strings.HasSuffix(strings.ToLower(c), "."+ql) && !strings.Contains(ql, ".") {
 			return ir.MatchExact, 0.95
 		}
 	}
+	for _, c := range candidates {
+		cl := strings.ToLower(c)
+		if strings.HasPrefix(cl, ql) {
+			return ir.MatchPrefix, float64(len(q)) / float64(len(c)+1)
+		}
+	}
+	bestDist := 99
+	for _, c := range candidates {
+		if dist, ok := fuzzyQualified(q, c); ok && dist < bestDist {
+			bestDist = dist
+		}
+	}
+	if bestDist <= maxFuzzyDistance(q) {
+		return ir.MatchFuzzy, 1.0 / float64(bestDist+2)
+	}
 	return "", 0
+}
+
+func maxFuzzyDistance(q string) int {
+	n := len(q)
+	switch {
+	case n < 4:
+		return 0
+	case n < 12:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// fuzzyQualified compares dotted identifiers segment-wise with bounded edit distance.
+func fuzzyQualified(query, candidate string) (int, bool) {
+	qs := strings.Split(query, ".")
+	cs := strings.Split(candidate, ".")
+	if len(qs) > len(cs) {
+		return 0, false
+	}
+	// Align query segments to the trailing end of candidate (pkg.Owner.method).
+	offset := len(cs) - len(qs)
+	total := 0
+	for i, qseg := range qs {
+		cseg := cs[offset+i]
+		if strings.EqualFold(qseg, cseg) {
+			continue
+		}
+		d := levenshtein(strings.ToLower(qseg), strings.ToLower(cseg), 2)
+		if d < 0 {
+			return 0, false
+		}
+		total += d
+	}
+	return total, true
+}
+
+// levenshtein returns edit distance or -1 if it would exceed limit.
+func levenshtein(a, b string, limit int) int {
+	if a == b {
+		return 0
+	}
+	la, lb := len(a), len(b)
+	if abs(la-lb) > limit {
+		return -1
+	}
+	prev := make([]int, lb+1)
+	cur := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		cur[0] = i
+		rowMin := cur[0]
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			del := prev[j] + 1
+			ins := cur[j-1] + 1
+			sub := prev[j-1] + cost
+			cur[j] = min(del, ins, sub)
+			if cur[j] < rowMin {
+				rowMin = cur[j]
+			}
+		}
+		if rowMin > limit {
+			return -1
+		}
+		prev, cur = cur, prev
+	}
+	if prev[lb] > limit {
+		return -1
+	}
+	return prev[lb]
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func matchRank(m ir.MatchKind) int {

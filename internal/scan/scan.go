@@ -8,20 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"example.com/cx/internal/exclude"
 )
 
 const defaultMaxFileBytes = 1 << 20 // 1 MiB
-
-// defaultExcludeDir names that are skipped at every directory level.
-var defaultExcludeDir = map[string]struct{}{
-	".git":         {},
-	"node_modules": {},
-	".idea":        {},
-	"target":       {},
-	"build":        {},
-	"out":          {},
-	".gradle":      {},
-}
 
 // File describes one indexable text file relative to root.
 type File struct {
@@ -38,12 +29,19 @@ type Stats struct {
 	SkippedBinary    int
 	SkippedOversize  int
 	SkippedInvalid   int
+	SkippedExcluded  int
 }
 
 // Result is the outcome of Scan.
 type Result struct {
 	Files []File
 	Stats Stats
+}
+
+// Options control scanning.
+type Options struct {
+	Excludes []string // --exclude patterns
+	MaxBytes int64
 }
 
 // ValidateRoot ensures root exists and is a directory.
@@ -61,8 +59,8 @@ func ValidateRoot(root string) error {
 	return nil
 }
 
-// Scan walks root, skipping default exclude dirs, symlinks, binaries, and oversized files.
-func Scan(root string) (Result, error) {
+// Scan walks root with default + .cxignore + flag exclusions; no symlink following.
+func Scan(root string, opts Options) (Result, error) {
 	if err := ValidateRoot(root); err != nil {
 		return Result{}, err
 	}
@@ -70,21 +68,34 @@ func Scan(root string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	ignoreLines, err := exclude.LoadCxIgnore(absRoot)
+	if err != nil {
+		return Result{}, err
+	}
+	matcher := exclude.New(ignoreLines, opts.Excludes)
+	maxBytes := opts.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxFileBytes
+	}
 
 	var out Result
 	err = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		name := d.Name()
+		rel, err := filepath.Rel(absRoot, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
+
 		if d.IsDir() {
 			if path == absRoot {
 				return nil
 			}
-			if _, skip := defaultExcludeDir[name]; skip {
-				return filepath.SkipDir
-			}
-			// Never follow symlinked directories.
 			if d.Type()&fs.ModeSymlink != 0 {
 				return filepath.SkipDir
 			}
@@ -95,8 +106,13 @@ func Scan(root string) (Result, error) {
 			if info.Mode()&os.ModeSymlink != 0 {
 				return filepath.SkipDir
 			}
+			if matcher.Match(rel) {
+				out.Stats.SkippedExcluded++
+				return filepath.SkipDir
+			}
 			return nil
 		}
+
 		if d.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
@@ -107,7 +123,11 @@ func Scan(root string) (Result, error) {
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		if info.Size() > defaultMaxFileBytes {
+		if matcher.Match(rel) {
+			out.Stats.SkippedExcluded++
+			return nil
+		}
+		if info.Size() > maxBytes {
 			out.Stats.SkippedOversize++
 			return nil
 		}
@@ -115,19 +135,14 @@ func Scan(root string) (Result, error) {
 		if err != nil {
 			return nil
 		}
-		if !utf8.Valid(data) || looksBinary(data) {
-			if !utf8.Valid(data) {
-				out.Stats.SkippedInvalid++
-			} else {
-				out.Stats.SkippedBinary++
-			}
+		if !utf8.Valid(data) {
+			out.Stats.SkippedInvalid++
 			return nil
 		}
-		rel, err := filepath.Rel(absRoot, path)
-		if err != nil {
+		if looksBinary(data) {
+			out.Stats.SkippedBinary++
 			return nil
 		}
-		rel = filepath.ToSlash(rel)
 		isJava := strings.HasSuffix(strings.ToLower(rel), ".java")
 		out.Files = append(out.Files, File{
 			RelPath: rel,
@@ -148,7 +163,6 @@ func Scan(root string) (Result, error) {
 }
 
 func looksBinary(data []byte) bool {
-	// NUL byte is a strong binary signal for source tooling.
 	n := len(data)
 	if n > 8000 {
 		n = 8000

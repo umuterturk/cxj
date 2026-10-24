@@ -62,11 +62,10 @@ func runServe(args []string) int {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return 1
 	}
-	_ = excludes
 	_ = embedURL
 	_ = embedModel
 
-	eng, err := engine.Open(*root)
+	eng, err := engine.Open(*root, engine.Options{Excludes: excludes})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return 1

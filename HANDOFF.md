@@ -1,12 +1,11 @@
 # Compact handoff
 
-**Phase 1 PASSED.** `./scripts/acceptance.sh 1` → all `TestP0*` + `TestP1*` ok.
+**Phase 2 PASSED.** `./scripts/acceptance.sh 2` → `TestP0*`..`TestP2*` ok.
 
 ## Verified
-- Java classes/methods indexed with real 1-based lines; overloads keep distinct locations.
-- Lexical search matches `Owner.method` and simple names (exact/prefix).
-- `/v1/references` does not mark interface dispatch as exact to concrete impls.
-- Deps: `github.com/tree-sitter/go-tree-sitter v0.25.0`, `tree-sitter-java v0.23.5` (CGO).
+- Fuzzy typos (edit distance) find symbols; never labeled exact; exact outranks fuzzy.
+- UTF-8 text lines searchable with `kind=text`; binaries/oversized skipped (`indexed_files=0` in that fixture).
+- `--exclude`, `.cxignore`, and default `target`/`build`/… applied before indexing.
 
 ## Next
-Phase 2: text lexical search, `.cxignore` / `--exclude`, fuzzy/exact ranking, UTF-8/size skips. Plan: `plans/02-text-exclusions.md`. Gate: `./scripts/acceptance.sh 2`.
+Phase 3: real Ollama embeddings (`qwen3-embedding:0.6b`), semantic + hybrid search, 503 when not ready. Plan: `plans/03-embeddings.md`. Gate: `./scripts/acceptance.sh 3`. Ensure `ollama serve` and model pulled first.
