@@ -1,11 +1,12 @@
 # Compact handoff
 
-**Phase 6 PASSED.** `./scripts/acceptance.sh 6` and `CX_RACE=1 ./scripts/acceptance.sh 6` ok.
+**ALL PHASES 0–7 PASSED.** Release-ready under this kit's contract.
 
-## Verified
-- Create/modify/rename/delete reflected live; excluded paths stay out.
-- Concurrent lexical queries consistent; MCP initialize/tools/list/tools/call(find) works on stdio.
-- Java edits re-embed and bump semantic generation; stale symbols removed.
+## Verified gates
+- `./scripts/acceptance.sh 7` PASS
+- `CX_RACE=1 ./scripts/acceptance.sh 7` PASS
+- PetClinic pin: `500158f732419217507c7656904b8e6aa1bcc0d6`
+- Benchmark report present with measured fields (`./scripts/benchmark.sh`)
 
-## Next
-Phase 7: PetClinic pin + 500K LOC reliability/perf gates. Plan: `plans/07-benchmark.md`. Gate: `./scripts/acceptance.sh 7`. Run `./scripts/prepare-petclinic.sh` and record commit in STATE.
+## Product surface
+`cx serve` / `cx mcp` / `cx find`; HTTP `/v1/{status,search,references,endpoints,beans,context,config}`; semantic via Ollama; live fsnotify reindex; no on-disk index.

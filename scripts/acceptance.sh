@@ -7,6 +7,11 @@ mkdir -p bin
 export CX_BIN="$(pwd)/bin/cx"
 export CX_EMBED_URL="${CX_EMBED_URL:-http://127.0.0.1:11434}"
 export CX_EMBED_MODEL="${CX_EMBED_MODEL:-qwen3-embedding:0.6b}"
+if [[ -f reports/petclinic.env ]]; then
+  # shellcheck disable=SC1091
+  source reports/petclinic.env
+  export PETCLINIC_ROOT PETCLINIC_COMMIT
+fi
 regex="^TestP[0-${phase}]"
 if [[ "${CX_RACE:-0}" == "1" ]]; then
   go build -race -o bin/cx ./cmd/cx

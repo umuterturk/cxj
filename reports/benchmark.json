@@ -1,0 +1,12 @@
+{
+  "repository": "spring-projects/spring-petclinic",
+  "commit": "500158f732419217507c7656904b8e6aa1bcc0d6",
+  "model": "qwen3-embedding:0.6b",
+  "go_index_memory_bytes": 5281752,
+  "warm_lexical_p95_ms": 3,
+  "semantic_recall_at_10": 1,
+  "embedding_index_seconds": 0.71508775,
+  "hardware": "darwin/arm64 gogo1.24.0",
+  "sample_size_lexical": 30,
+  "warm_lexical_p50_ms": 3
+}
