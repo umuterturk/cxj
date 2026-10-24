@@ -1,0 +1,180 @@
+package acceptance
+
+import (
+	"encoding/json"
+	"net/url"
+	"strings"
+	"testing"
+)
+
+func TestP5YamlAndPropertiesDefinitionsKeepProfileSource(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "src/main/resources/application.yml", "billing:\n  provider:\n    timeout: 1500\n")
+	put(t, root, "src/main/resources/application-prod.properties", "billing.provider.timeout=3500\n")
+	e := start(t, root, false)
+	var c configReply
+	p := "/v1/config?key=" + url.QueryEscape("billing.provider.timeout") + "&profile=prod"
+	if err := e.get(p, &c); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Definitions) != 2 {
+		t.Fatalf("need both definitions and origins, got %+v", c)
+	}
+	if c.RepositoryValue != "3500" || c.Resolution != "known" {
+		t.Fatalf("wrong profile repository value: %+v", c)
+	}
+}
+func TestP5PlaceholderIsNotInventedAsRuntimeValue(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "application-prod.yml", "billing:\n  gateway:\n    uri: ${PAYMENT_PRIVATE_URL}\n")
+	e := start(t, root, false)
+	var c configReply
+	if err := e.get("/v1/config?key=billing.gateway.uri&profile=prod", &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Resolution != "external" {
+		t.Fatalf("environment placeholder must be marked external: %+v", c)
+	}
+	if strings.HasPrefix(c.RepositoryValue, "http") {
+		t.Fatalf("runtime endpoint is unknown: %+v", c)
+	}
+}
+func TestP5ConfigurationPropertyIsLinkedToJavaBinding(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "application.properties", "billing.max-retries=4\n")
+	put(t, root, "BillingSettings.java", `import org.springframework.boot.context.properties.ConfigurationProperties;
+@ConfigurationProperties(prefix="billing")
+record BillingSettings(int maxRetries) {}
+`)
+	e := start(t, root, false)
+	var c configReply
+	if err := e.get("/v1/config?key=billing.max-retries", &c); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Bindings) == 0 || !strings.Contains(strings.Join(c.Bindings, " "), "BillingSettings") {
+		t.Fatalf("Spring relaxed binding must link configuration to Java record: %+v", c)
+	}
+}
+func TestP5SecretValuesNeverAppearInResults(t *testing.T) {
+	root := t.TempDir()
+	secret := "super-private-token-9592-do-not-return"
+	put(t, root, "application.yml", "security:\n  api-token: "+secret+"\n")
+	e := start(t, root, false)
+	var c configReply
+	if err := e.get("/v1/config?key=security.api-token", &c); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(c)
+	if strings.Contains(string(payload), secret) {
+		t.Fatalf("secret leaked from config endpoint: %s", payload)
+	}
+	var found searchReply
+	if err := e.get("/v1/search?q=security.api-token&mode=lexical", &found); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ = json.Marshal(found)
+	if strings.Contains(string(payload), secret) {
+		t.Fatalf("secret leaked from search snippet: %s", payload)
+	}
+}
+func TestP5ExcludedConfigStaysInvisible(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "secure/application-prod.yml", "billing:\n  hidden-setting: 424242\n")
+	e := start(t, root, false, "secure/**")
+	var c configReply
+	if err := e.get("/v1/config?key=billing.hidden-setting&profile=prod", &c); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Definitions) != 0 {
+		t.Fatalf("excluded config was analyzed: %+v", c)
+	}
+	requireNoPath(t, e.search(t, "424242", "lexical"), "application-prod.yml")
+}
+
+func TestP5ValueAnnotationCreatesConfigReference(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "application.properties", "cache.expire-seconds=120\n")
+	put(t, root, "CacheConfig.java", `import org.springframework.beans.factory.annotation.Value;
+class CacheConfig {
+  @Value("${cache.expire-seconds}") private int ttl;
+}`)
+	e := start(t, root, false)
+	var c configReply
+	if err := e.get("/v1/config?key=cache.expire-seconds", &c); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(c.Bindings, " "), "CacheConfig") {
+		t.Fatalf("@Value reference was not connected to config definition: %+v", c)
+	}
+}
+
+func TestP5ConditionalPropertyMustNotClaimRuntimeBeanActivation(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "application.yml", "notifications:\n  enabled: ${NOTIFY_SWITCH}\n")
+	put(t, root, "NotificationBean.java", `import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
+@Service
+@ConditionalOnProperty(prefix="notifications",name="enabled",havingValue="true")
+class NotificationBean {}`)
+	e := start(t, root, false)
+	var c configReply
+	if err := e.get("/v1/config?key=notifications.enabled", &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Resolution != "external" {
+		t.Fatalf("external conditional value cannot be called known: %+v", c)
+	}
+	if !strings.Contains(strings.Join(c.Bindings, " "), "NotificationBean") {
+		t.Fatalf("conditional bean relationship not indexed: %+v", c)
+	}
+}
+
+func TestP5LocalConfigImportOverridesImporter(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "src/main/resources/application.yml", `spring:
+  config:
+    import: "classpath:defaults.yml"
+queue:
+  size: 25
+`)
+	put(t, root, "src/main/resources/defaults.yml", `queue:
+  size: 70
+`)
+	e := start(t, root, false)
+	var c configReply
+	if err := e.get("/v1/config?key=queue.size", &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.RepositoryValue != "70" || c.Resolution != "known" {
+		t.Fatalf("supported local import should override importer: %+v", c)
+	}
+}
+
+func TestP5MultiDocumentYamlProfileSelection(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "src/main/resources/application.yml", `limits:
+  batch: 100
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+limits:
+  batch: 750
+`)
+	e := start(t, root, false)
+	var prod configReply
+	if err := e.get("/v1/config?key=limits.batch&profile=prod", &prod); err != nil {
+		t.Fatal(err)
+	}
+	if prod.RepositoryValue != "750" {
+		t.Fatalf("prod multi-document value wrong: %+v", prod)
+	}
+	var dev configReply
+	if err := e.get("/v1/config?key=limits.batch&profile=dev", &dev); err != nil {
+		t.Fatal(err)
+	}
+	if dev.RepositoryValue != "100" {
+		t.Fatalf("inactive prod document applied to dev: %+v", dev)
+	}
+}

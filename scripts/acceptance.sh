@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+phase="${1:?Usage: ./scripts/acceptance.sh <phase-number 0..7>}"
+[[ "$phase" =~ ^[0-7]$ ]] || { echo "Phase must be 0..7" >&2; exit 2; }
+mkdir -p bin
+# Set CX_RACE=1 for an instrumented engine AND acceptance process.
+export CX_BIN="$(pwd)/bin/cx"
+export CX_EMBED_URL="${CX_EMBED_URL:-http://127.0.0.1:11434}"
+export CX_EMBED_MODEL="${CX_EMBED_MODEL:-qwen3-embedding:0.6b}"
+regex="^TestP[0-${phase}]"
+if [[ "${CX_RACE:-0}" == "1" ]]; then
+  go build -race -o bin/cx ./cmd/cx
+  go test -race -count=1 -timeout=20m -v ./acceptance -run "$regex"
+else
+  go build -o bin/cx ./cmd/cx
+  go test -count=1 -timeout=20m -v ./acceptance -run "$regex"
+fi
