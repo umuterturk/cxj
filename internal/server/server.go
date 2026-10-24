@@ -20,6 +20,9 @@ type Index interface {
 	Status() ir.Status
 	Search(q, mode string, limit int) (ir.SearchReply, error)
 	References(symbol string) ir.RefReply
+	Endpoints(method, path string) any
+	Beans(typ string) any
+	Context(symbol string, budget int) any
 }
 
 // Server is the loopback JSON API.
@@ -50,6 +53,9 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux.HandleFunc("/v1/status", s.handleStatus)
 	mux.HandleFunc("/v1/search", s.handleSearch)
 	mux.HandleFunc("/v1/references", s.handleReferences)
+	mux.HandleFunc("/v1/endpoints", s.handleEndpoints)
+	mux.HandleFunc("/v1/beans", s.handleBeans)
+	mux.HandleFunc("/v1/context", s.handleContext)
 	srv := &http.Server{Handler: mux}
 	s.log.Printf("listening on http://%s", ln.Addr().String())
 	return srv.Serve(ln)
@@ -120,6 +126,36 @@ func (s *Server) handleReferences(w http.ResponseWriter, r *http.Request) {
 	}
 	symbol := r.URL.Query().Get("symbol")
 	writeJSON(w, http.StatusOK, s.index.References(symbol))
+}
+
+func (s *Server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.index.Endpoints(r.URL.Query().Get("method"), r.URL.Query().Get("path")))
+}
+
+func (s *Server) handleBeans(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.index.Beans(r.URL.Query().Get("type")))
+}
+
+func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	budget := 500
+	if raw := r.URL.Query().Get("budget"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			budget = n
+		}
+	}
+	writeJSON(w, http.StatusOK, s.index.Context(r.URL.Query().Get("symbol"), budget))
 }
 
 func isSemanticNotReady(err error) bool {

@@ -16,6 +16,7 @@ import (
 	"example.com/cx/internal/ir"
 	"example.com/cx/internal/java"
 	"example.com/cx/internal/scan"
+	"example.com/cx/internal/spring"
 )
 
 // Options configure engine opening.
@@ -38,6 +39,7 @@ type Engine struct {
 	model  string
 	syms   *index.SymbolIndex
 	text   *index.TextIndex
+	spring *spring.Index
 	store  *embed.Store
 	prov   *embed.Provider
 	chunks []embed.Chunk
@@ -57,11 +59,13 @@ func Open(root string, opts Options) (*Engine, error) {
 	}
 	ext := java.NewExtractor()
 	defer ext.Close()
+	springExt := spring.NewExtractor()
+	defer springExt.Close()
 
 	var facts []ir.FileFacts
+	var springFacts []spring.Facts
 	var textLines []index.TextLine
 	var chunks []embed.Chunk
-	srcByPath := map[string][]byte{}
 	for _, f := range res.Files {
 		data, err := os.ReadFile(f.AbsPath)
 		if err != nil {
@@ -73,8 +77,8 @@ func Open(root string, opts Options) (*Engine, error) {
 				continue
 			}
 			facts = append(facts, ff)
-			srcByPath[f.RelPath] = data
 			chunks = append(chunks, embed.ChunksFromFacts(ff, data)...)
+			springFacts = append(springFacts, springExt.Extract(f.RelPath, data))
 			continue
 		}
 		textLines = append(textLines, splitLines(f.RelPath, data)...)
@@ -88,11 +92,11 @@ func Open(root string, opts Options) (*Engine, error) {
 		sem:    ir.SemanticOff,
 		syms:   index.Build(facts),
 		text:   index.BuildText(textLines),
+		spring: spring.Build(springFacts),
 		store:  &embed.Store{},
 		chunks: chunks,
 		log:    logger,
 	}
-	_ = srcByPath
 
 	if opts.EmbedURL != "" {
 		model := opts.EmbedModel
@@ -292,6 +296,35 @@ func (e *Engine) References(symbol string) ir.RefReply {
 		results = []ir.RefResult{}
 	}
 	return ir.RefReply{Results: results}
+}
+
+// Endpoints implements server.Index.
+func (e *Engine) Endpoints(method, path string) any {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	results := e.spring.Endpoints(method, path)
+	if results == nil {
+		results = []spring.EndpointResult{}
+	}
+	return map[string]any{"results": results}
+}
+
+// Beans implements server.Index.
+func (e *Engine) Beans(typ string) any {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	results := e.spring.Beans(typ)
+	if results == nil {
+		results = []spring.BeanResult{}
+	}
+	return map[string]any{"results": results}
+}
+
+// Context implements server.Index.
+func (e *Engine) Context(symbol string, budget int) any {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.spring.Context(symbol, budget)
 }
 
 // Root returns the absolute workspace root.

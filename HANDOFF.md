@@ -1,11 +1,12 @@
 # Compact handoff
 
-**Phase 3 PASSED.** `./scripts/acceptance.sh 3` → all ok; semantic 8/8 + multilingual TR≥2.
+**Phase 4 PASSED.** `./scripts/acceptance.sh 4` → all ok.
 
 ## Verified
-- `--embed-url/--embed-model` enables background indexing; `semantic_state` building→ready|unavailable.
-- Semantic/hybrid return 503 when off/unavailable; hybrid preserves exact identifier rank.
-- Excluded Java absent from semantic results. Host needs `ollama serve` + `qwen3-embedding:0.6b`.
+- Class+method `@RequestMapping` composition for GET/POST.
+- Multi-bean injection stays ambiguous; `@Qualifier` can resolve exact.
+- `@Transactional` appears in context without `transaction_effective:true`.
+- `JpaRepository` extension preserved in context.
 
 ## Next
-Phase 4: Spring endpoints, beans, DI graph. Plan: `plans/04-spring.md`. Gate: `./scripts/acceptance.sh 4`.
+Phase 5: Spring config (YAML/properties), profiles, `@Value` bindings, secret redaction. Plan: `plans/05-config.md`. Gate: `./scripts/acceptance.sh 5`.
