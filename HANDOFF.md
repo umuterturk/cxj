@@ -1,12 +1,11 @@
 # Compact handoff
 
-**Phase 4 PASSED.** `./scripts/acceptance.sh 4` → all ok.
+**Phase 5 PASSED.** `./scripts/acceptance.sh 5` → all ok.
 
 ## Verified
-- Class+method `@RequestMapping` composition for GET/POST.
-- Multi-bean injection stays ambiguous; `@Qualifier` can resolve exact.
-- `@Transactional` appears in context without `transaction_effective:true`.
-- `JpaRepository` extension preserved in context.
+- Profile-aware YAML/properties definitions; placeholders → `resolution=external`.
+- Java bindings via `@Value`, `@ConfigurationProperties` (relaxed), `@ConditionalOnProperty`.
+- Secrets never returned; excluded config invisible; local `spring.config.import` overrides importer; multi-doc `on-profile` selection.
 
 ## Next
-Phase 5: Spring config (YAML/properties), profiles, `@Value` bindings, secret redaction. Plan: `plans/05-config.md`. Gate: `./scripts/acceptance.sh 5`.
+Phase 6: live reindex on edits, concurrency, MCP stdio, `cx find`. Plan: `plans/06-live-mcp.md`. Gate: `./scripts/acceptance.sh 6`.

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"example.com/cx/internal/config"
 	"example.com/cx/internal/embed"
 	"example.com/cx/internal/index"
 	"example.com/cx/internal/ir"
@@ -40,6 +41,7 @@ type Engine struct {
 	syms   *index.SymbolIndex
 	text   *index.TextIndex
 	spring *spring.Index
+	cfg    *config.Index
 	store  *embed.Store
 	prov   *embed.Provider
 	chunks []embed.Chunk
@@ -61,9 +63,13 @@ func Open(root string, opts Options) (*Engine, error) {
 	defer ext.Close()
 	springExt := spring.NewExtractor()
 	defer springExt.Close()
+	bindExt := config.NewBindingExtractor()
+	defer bindExt.Close()
 
 	var facts []ir.FileFacts
 	var springFacts []spring.Facts
+	var cfgFiles []config.FileFacts
+	var bindings []config.Binding
 	var textLines []index.TextLine
 	var chunks []embed.Chunk
 	for _, f := range res.Files {
@@ -79,9 +85,13 @@ func Open(root string, opts Options) (*Engine, error) {
 			facts = append(facts, ff)
 			chunks = append(chunks, embed.ChunksFromFacts(ff, data)...)
 			springFacts = append(springFacts, springExt.Extract(f.RelPath, data))
+			bindings = append(bindings, bindExt.ExtractBindings(f.RelPath, data)...)
 			continue
 		}
-		textLines = append(textLines, splitLines(f.RelPath, data)...)
+		if cfg, err := config.ParseIfConfig(f.RelPath, data); err == nil && cfg != nil {
+			cfgFiles = append(cfgFiles, *cfg)
+		}
+		textLines = append(textLines, splitLinesRedacted(f.RelPath, data)...)
 	}
 
 	e := &Engine{
@@ -93,6 +103,7 @@ func Open(root string, opts Options) (*Engine, error) {
 		syms:   index.Build(facts),
 		text:   index.BuildText(textLines),
 		spring: spring.Build(springFacts),
+		cfg:    config.Build(cfgFiles, bindings),
 		store:  &embed.Store{},
 		chunks: chunks,
 		log:    logger,
@@ -157,7 +168,7 @@ func (e *Engine) buildSemantic() {
 	e.log.Printf("semantic index ready: %d chunks", e.store.Len())
 }
 
-func splitLines(path string, data []byte) []index.TextLine {
+func splitLinesRedacted(path string, data []byte) []index.TextLine {
 	raw := string(data)
 	parts := strings.Split(raw, "\n")
 	out := make([]index.TextLine, 0, len(parts))
@@ -165,7 +176,7 @@ func splitLines(path string, data []byte) []index.TextLine {
 		if line == "" && i == len(parts)-1 {
 			continue
 		}
-		out = append(out, index.TextLine{Path: path, Line: i + 1, Text: line})
+		out = append(out, index.TextLine{Path: path, Line: i + 1, Text: config.RedactText(line)})
 	}
 	return out
 }
@@ -325,6 +336,13 @@ func (e *Engine) Context(symbol string, budget int) any {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.spring.Context(symbol, budget)
+}
+
+// Config implements server.Index.
+func (e *Engine) Config(key, profile string) any {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.cfg.Query(key, profile)
 }
 
 // Root returns the absolute workspace root.

@@ -23,6 +23,7 @@ type Index interface {
 	Endpoints(method, path string) any
 	Beans(typ string) any
 	Context(symbol string, budget int) any
+	Config(key, profile string) any
 }
 
 // Server is the loopback JSON API.
@@ -56,6 +57,7 @@ func (s *Server) ListenAndServe(addr string) error {
 	mux.HandleFunc("/v1/endpoints", s.handleEndpoints)
 	mux.HandleFunc("/v1/beans", s.handleBeans)
 	mux.HandleFunc("/v1/context", s.handleContext)
+	mux.HandleFunc("/v1/config", s.handleConfig)
 	srv := &http.Server{Handler: mux}
 	s.log.Printf("listening on http://%s", ln.Addr().String())
 	return srv.Serve(ln)
@@ -156,6 +158,14 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, s.index.Context(r.URL.Query().Get("symbol"), budget))
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.index.Config(r.URL.Query().Get("key"), r.URL.Query().Get("profile")))
 }
 
 func isSemanticNotReady(err error) bool {

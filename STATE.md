@@ -1,14 +1,13 @@
 # CURRENT STATE — CANONICAL CHECKPOINT
 
-- Current phase: **5** (next to implement)
-- Status: **Phase 4 PASSED**
-- Last verified passed phase: **4**
-- Last acceptance command/result: `./scripts/acceptance.sh 4` → PASS (`TestP0*`..`TestP4*`)
-- Spring: `internal/spring` extracts routes, stereotype beans, constructor injection + `@Qualifier`, `@Transactional` (declared only), Spring Data repos; `/v1/endpoints|/v1/beans|/v1/context`
-- Embeddings: Ollama `qwen3-embedding:0.6b` (Phase 3)
+- Current phase: **6** (next to implement)
+- Status: **Phase 5 PASSED**
+- Last verified passed phase: **5**
+- Last acceptance command/result: `./scripts/acceptance.sh 5` → PASS (`TestP0*`..`TestP5*`)
+- Config: `internal/config` YAML/properties + profiles + classpath import override + `@Value`/`@ConfigurationProperties`/`@ConditionalOnProperty` bindings; secrets redacted as `[REDACTED]`
+- Embeddings: Ollama `qwen3-embedding:0.6b`
 - Reference repository pin: **not selected** (Phase 7)
-- Architectural decisions: ambiguous multi-bean injection never exact; qualifier can exact; no runtime transaction claims
-- Known limitations: no YAML/properties config API, no live watch/MCP
-- Next action: Read `plans/05-config.md`, implement Phase 5, run `./scripts/acceptance.sh 5`.
+- Known limitations: no live file watch, no MCP stdio, no `cx find` CLI polish
+- Next action: Read `plans/06-live-mcp.md`, implement Phase 6, run `./scripts/acceptance.sh 6`.
 
 This file is rewritten after every gate. Do not treat any plan file as proof of implementation completion.
