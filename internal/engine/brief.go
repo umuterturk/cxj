@@ -8,11 +8,10 @@ import (
 )
 
 // Brief is the compact workspace orientation card.
-// Packages are limited to entrypoint roots + one child segment (use map for the full tree),
-// split by main vs test source roots.
+// Packages are limited to entrypoint roots + one child segment (use map for the full tree).
 func (e *Engine) Brief() ir.BriefReply {
 	mainTypes := map[string]int{}
-	testTypes := map[string]int{}
+	mainFiles := 0
 	types := 0
 	testClasses := 0
 	for _, f := range e.facts {
@@ -26,44 +25,45 @@ func (e *Engine) Brief() ir.BriefReply {
 				}
 			}
 		}
-		types += n
-		if f.Package == "" || n == 0 {
+		if isTestPath(f.Path) {
 			continue
 		}
-		if isTestPath(f.Path) {
-			testTypes[f.Package] += n
-		} else {
+		mainFiles++
+		types += n
+		if f.Package != "" && n > 0 {
 			mainTypes[f.Package] += n
 		}
 	}
 
-	entry := e.spring.AllEntrypoints()
 	kind := "java"
-	if len(entry) > 0 {
+	if e.spring != nil && e.spring.HasSpringBoot() {
 		kind = "spring"
 	}
-	if entry == nil {
-		entry = []ir.Entrypoint{}
+
+	roots := briefRoots(e.spring.AllEntrypoints(), mainTypes)
+	pkgs := selectBriefPackages(mainTypes, roots, "main")
+	if pkgs == nil {
+		pkgs = []ir.BriefPackage{}
 	}
 
-	roots := briefRoots(entry, mainTypes)
-	if len(roots) == 0 {
-		roots = inferShallowRoots(testTypes)
+	var profiles []string
+	if e.cfg != nil {
+		profiles = e.cfg.Profiles()
 	}
-	outPkgs := append(
-		selectBriefPackages(mainTypes, roots, "main"),
-		selectBriefPackages(testTypes, roots, "test")...,
-	)
 
 	return ir.BriefReply{
 		Kind:         kind,
-		JavaFiles:    e.stats.IndexedJavaFiles,
+		Java:         e.javaVer,
+		SpringBoot:   e.bootVer,
+		MainFiles:    mainFiles,
 		Types:        types,
-		Packages:     outPkgs,
-		PackageTotal: len(mainTypes) + len(testTypes),
-		Entrypoints:  entry,
-		Profiles:     e.cfg.Profiles(),
 		TestClasses:  testClasses,
+		Packages:     pkgs,
+		Profiles:     profiles,
+		HTTP:         e.spring.BriefHTTP(),
+		Ingress:      e.spring.BriefIngress(),
+		OutboundHTTP: e.spring.OutboundHTTP(),
+		OutboundDB:   e.spring.OutboundDB(),
 	}
 }
 

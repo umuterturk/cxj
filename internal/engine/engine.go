@@ -4,6 +4,7 @@ package engine
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -24,14 +25,16 @@ type Options struct {
 
 // Engine is an immutable in-RAM snapshot of the workspace.
 type Engine struct {
-	root   string
-	stats  scan.Stats
-	gen    int
-	facts  []ir.FileFacts
-	syms   *index.SymbolIndex
-	text   *index.TextIndex
-	spring *spring.Index
-	cfg    *config.Index
+	root    string
+	stats   scan.Stats
+	gen     int
+	facts   []ir.FileFacts
+	syms    *index.SymbolIndex
+	text    *index.TextIndex
+	spring  *spring.Index
+	cfg     *config.Index
+	javaVer string
+	bootVer string
 }
 
 // Open scans root and builds lexical, Spring, and config indexes.
@@ -52,10 +55,18 @@ func Open(root string, opts Options) (*Engine, error) {
 	var cfgFiles []config.FileFacts
 	var bindings []config.Binding
 	var textLines []index.TextLine
+	var verHits []versionHit
 	for _, f := range res.Files {
 		data, err := os.ReadFile(f.AbsPath)
 		if err != nil {
 			continue
+		}
+		if j, b := parseBuildVersions(filepath.Base(f.RelPath), data); j != "" || b != "" {
+			verHits = append(verHits, versionHit{
+				depth: strings.Count(f.RelPath, "/"),
+				java:  j,
+				boot:  b,
+			})
 		}
 		if f.IsJava {
 			ff, err := ext.Extract(f.RelPath, data)
@@ -73,15 +84,18 @@ func Open(root string, opts Options) (*Engine, error) {
 		textLines = append(textLines, splitLinesRedacted(f.RelPath, data)...)
 	}
 
+	javaVer, bootVer := pickVersions(verHits)
 	return &Engine{
-		root:   root,
-		stats:  res.Stats,
-		gen:    1,
-		facts:  facts,
-		syms:   index.Build(facts),
-		text:   index.BuildText(textLines),
-		spring: spring.Build(springFacts),
-		cfg:    config.Build(cfgFiles, bindings),
+		root:    root,
+		stats:   res.Stats,
+		gen:     1,
+		facts:   facts,
+		syms:    index.Build(facts),
+		text:    index.BuildText(textLines),
+		spring:  spring.Build(springFacts),
+		cfg:     config.Build(cfgFiles, bindings),
+		javaVer: javaVer,
+		bootVer: bootVer,
 	}, nil
 }
 

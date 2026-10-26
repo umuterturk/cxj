@@ -163,20 +163,36 @@ type Entrypoint struct {
 // BriefPackage is a package row in cx brief.
 type BriefPackage struct {
 	Name  string `json:"name"`
-	Scope string `json:"scope"` // main | test
+	Scope string `json:"scope,omitempty"` // main | test
 	Types int    `json:"types"`
+}
+
+// BriefHTTP is one controller mapping on the brief card.
+type BriefHTTP struct {
+	Method string `json:"method"`
+	Route  string `json:"route"`
+}
+
+// BriefIngress is a non-HTTP ingress site (runner, listener, scheduler).
+type BriefIngress struct {
+	Kind   string `json:"kind"`
+	Symbol string `json:"symbol"`
 }
 
 // BriefReply is the cx brief --json payload.
 type BriefReply struct {
 	Kind         string         `json:"kind"`
-	JavaFiles    int            `json:"java_files"`
+	Java         string         `json:"java,omitempty"`
+	SpringBoot   string         `json:"spring_boot,omitempty"`
+	MainFiles    int            `json:"main_files"`
 	Types        int            `json:"types"`
-	Packages     []BriefPackage `json:"packages"`
-	PackageTotal int            `json:"packages_total"`
-	Entrypoints  []Entrypoint   `json:"entrypoints"`
-	Profiles     []string       `json:"profiles"`
 	TestClasses  int            `json:"test_classes"`
+	Packages     []BriefPackage `json:"packages"`
+	Profiles     []string       `json:"profiles,omitempty"`
+	HTTP         []BriefHTTP    `json:"http,omitempty"`
+	Ingress      []BriefIngress `json:"ingress,omitempty"`
+	OutboundHTTP []string       `json:"out_http,omitempty"`
+	OutboundDB   []string       `json:"out_db,omitempty"`
 }
 
 // TrailHit is one compact related symbol in cx trail.

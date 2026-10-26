@@ -61,6 +61,7 @@ type TransactionDecl struct {
 type RepositoryRel struct {
 	Symbol  string
 	Extends string
+	Entity  string
 	File    string
 	Line    int
 }
@@ -73,6 +74,7 @@ type Facts struct {
 	Transactions []TransactionDecl
 	Repositories []RepositoryRel
 	Entrypoints  []ir.Entrypoint
+	HTTPClients  []string
 }
 
 // Extractor parses Spring annotations via Tree-sitter.
@@ -167,6 +169,8 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
 					Kind: "boot", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()),
 				})
+			case "FeignClient":
+				out.HTTPClients = append(out.HTTPClients, feignClientName(a, name))
 			case "ControllerAdvice", "RestControllerAdvice":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
 					Kind: "advice", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()),
@@ -197,10 +201,16 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 
 		// Repository extends JpaRepository etc.
 		if n.Kind() == "interface_declaration" {
+			entity := firstRepoEntity(n, src)
 			for _, ext := range ci.implements {
 				if isSpringDataRepo(ext) {
+					ent := entity
+					if ent == "" {
+						ent = strings.TrimSuffix(name, "Repository")
+					}
 					out.Repositories = append(out.Repositories, RepositoryRel{
-						Symbol: qual, Extends: ext, File: path, Line: lineAt(src, nameNode.StartByte()),
+						Symbol: qual, Extends: simplifyType(ext), Entity: ent,
+						File: path, Line: lineAt(src, nameNode.StartByte()),
 					})
 				}
 			}
@@ -234,7 +244,7 @@ func walkMember(n *tree_sitter.Node, src []byte, path string, class *classInfo, 
 		anns := annotationsOf(n, src)
 		if name == "main" {
 			out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-				Kind: "boot", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+				Kind: "main", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
 			})
 		}
 		for _, a := range anns {
@@ -306,8 +316,15 @@ func walkMember(n *tree_sitter.Node, src []byte, path string, class *classInfo, 
 						Consumer: class.qual, Type: typ, Qualifier: qual,
 						File: path, Line: lineAt(src, p.StartByte()),
 					})
+					if isHTTPClientType(typ) {
+						out.HTTPClients = append(out.HTTPClients, simplifyType(typ))
+					}
 				}
 			}
+		}
+	case "field_declaration":
+		if typ := fieldType(n, src); isHTTPClientType(typ) {
+			out.HTTPClients = append(out.HTTPClients, simplifyType(typ))
 		}
 	case "class_declaration", "interface_declaration":
 		// nested types ignored for MVP
@@ -550,6 +567,168 @@ func paramType(p *tree_sitter.Node, src []byte) string {
 		switch c.Kind() {
 		case "type_identifier", "generic_type", "scoped_type_identifier", "integral_type":
 			return simplifyType(nodeText(c, src))
+		}
+	}
+	return ""
+}
+
+func fieldType(n *tree_sitter.Node, src []byte) string {
+	if t := n.ChildByFieldName("type"); t != nil {
+		return simplifyType(nodeText(t, src))
+	}
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		c := n.NamedChild(i)
+		if c == nil {
+			continue
+		}
+		switch c.Kind() {
+		case "type_identifier", "generic_type", "scoped_type_identifier":
+			return simplifyType(nodeText(c, src))
+		}
+	}
+	return ""
+}
+
+func isHTTPClientType(typ string) bool {
+	switch simplifyType(typ) {
+	case "WebClient", "RestTemplate", "RestClient":
+		return true
+	}
+	return false
+}
+
+func feignClientName(a annotation, typeName string) string {
+	if n := namedStringArg(a, "name", "value"); n != "" {
+		return n
+	}
+	return strings.TrimSuffix(typeName, "Client")
+}
+
+func namedStringArg(a annotation, keys ...string) string {
+	args := a.Args
+	for _, key := range keys {
+		i := 0
+		for i < len(args) {
+			idx := strings.Index(args[i:], key)
+			if idx < 0 {
+				break
+			}
+			idx += i
+			if idx > 0 {
+				prev := args[idx-1]
+				if (prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') || prev == '_' {
+					i = idx + len(key)
+					continue
+				}
+			}
+			rest := strings.TrimSpace(args[idx+len(key):])
+			if strings.HasPrefix(rest, "=") {
+				rest = strings.TrimSpace(rest[1:])
+				if v, ok := quotedPrefix(rest); ok {
+					return v
+				}
+			}
+			i = idx + len(key)
+		}
+	}
+	if !strings.Contains(args, "=") {
+		return firstStringArg(a)
+	}
+	return ""
+}
+
+func quotedPrefix(s string) (string, bool) {
+	if len(s) < 2 {
+		return "", false
+	}
+	q := s[0]
+	if q != '"' && q != '\'' {
+		return "", false
+	}
+	j := strings.IndexByte(s[1:], q)
+	if j < 0 {
+		return "", false
+	}
+	return s[1 : 1+j], true
+}
+
+func firstRepoEntity(n *tree_sitter.Node, src []byte) string {
+	for _, field := range []string{"interfaces", "superclass"} {
+		if f := n.ChildByFieldName(field); f != nil {
+			if ent := firstRepoEntityIn(f, src); ent != "" {
+				return ent
+			}
+		}
+	}
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		c := n.NamedChild(i)
+		if c == nil {
+			continue
+		}
+		switch c.Kind() {
+		case "super_interfaces", "extends_interfaces", "interfaces", "superclass":
+			if ent := firstRepoEntityIn(c, src); ent != "" {
+				return ent
+			}
+		}
+	}
+	return ""
+}
+
+func firstRepoEntityIn(n *tree_sitter.Node, src []byte) string {
+	var found string
+	var walk func(*tree_sitter.Node)
+	walk = func(x *tree_sitter.Node) {
+		if x == nil || found != "" {
+			return
+		}
+		if x.Kind() == "generic_type" {
+			text := nodeText(x, src)
+			if isSpringDataRepo(text) {
+				found = firstTypeArgOfGeneric(text)
+				return
+			}
+		}
+		for i := uint(0); i < x.NamedChildCount(); i++ {
+			walk(x.NamedChild(i))
+		}
+	}
+	walk(n)
+	return found
+}
+
+func firstTypeArgOfGeneric(text string) string {
+	i := strings.IndexByte(text, '<')
+	if i < 0 {
+		return ""
+	}
+	depth := 0
+	start := i + 1
+	for j := i; j < len(text); j++ {
+		switch text[j] {
+		case '<':
+			depth++
+		case '>':
+			depth--
+			if depth == 0 {
+				inner := text[start:j]
+				arg := inner
+				d := 0
+				for k := 0; k < len(inner); k++ {
+					switch inner[k] {
+					case '<':
+						d++
+					case '>':
+						d--
+					case ',':
+						if d == 0 {
+							arg = inner[:k]
+							k = len(inner)
+						}
+					}
+				}
+				return simplifyType(strings.TrimSpace(arg))
+			}
 		}
 	}
 	return ""

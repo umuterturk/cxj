@@ -315,19 +315,7 @@ func execTool(eng *engine.Engine, call Call) (any, string, error) {
 }
 
 func formatBrief(reply ir.BriefReply) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "kind=%s types=%d\n", reply.Kind, reply.Types)
-	if len(reply.Profiles) > 0 {
-		fmt.Fprintf(&b, "profiles %s\n", strings.Join(reply.Profiles, ","))
-	}
-	for _, ep := range reply.Entrypoints {
-		if ep.Detail != "" {
-			fmt.Fprintf(&b, "%s %s %s\n", ep.Kind, ep.Detail, ep.Symbol)
-			continue
-		}
-		fmt.Fprintf(&b, "%s %s\n", ep.Kind, ep.Symbol)
-	}
-	return strings.TrimRight(b.String(), "\n")
+	return ir.FormatBrief(reply)
 }
 
 func formatTrail(reply ir.TrailReply) string {

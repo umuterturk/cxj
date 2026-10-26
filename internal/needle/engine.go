@@ -30,7 +30,7 @@ const (
 var Tools = []map[string]any{
 	{
 		"name":        "brief",
-		"description": "Workspace orientation: kind, entry package + depth-1 packages, all ingress (HTTP, scheduled, kafka, runners), profiles. Use map for the full package tree.",
+		"description": "Workspace orientation: kind, Java/Spring Boot versions, main file/type counts, profiles, app-root + depth-1 packages, HTTP routes, runners/listeners/schedulers, outbound HTTP and DB names. Use map for the full package tree.",
 		"triggers":    []string{"brief", "what is this project", "entrypoints", "overview"},
 		"parameters": map[string]any{
 			"type":       "object",

@@ -200,29 +200,7 @@ func (p *Printer) Brief(reply ir.BriefReply, m Mode) int {
 	if m.JSON {
 		return p.JSON(reply)
 	}
-	fmt.Fprintf(p.Out, "kind=%s java_files=%d types=%d test_classes=%d packages=%d/%d\n",
-		reply.Kind, reply.JavaFiles, reply.Types, reply.TestClasses, len(reply.Packages), reply.PackageTotal)
-	if len(reply.Profiles) > 0 {
-		fmt.Fprintf(p.Out, "profiles %s\n", strings.Join(reply.Profiles, ","))
-	}
-	for _, pkg := range reply.Packages {
-		name := pkg.Name
-		if name == "" {
-			name = "(default)"
-		}
-		scope := pkg.Scope
-		if scope == "" {
-			scope = "main"
-		}
-		fmt.Fprintf(p.Out, "pkg %s %s %d\n", scope, name, pkg.Types)
-	}
-	for _, ep := range reply.Entrypoints {
-		if ep.Detail != "" {
-			fmt.Fprintf(p.Out, "%s %s %s %s:%d\n", ep.Kind, ep.Detail, ep.Symbol, ep.Path, ep.Line)
-			continue
-		}
-		fmt.Fprintf(p.Out, "%s %s %s:%d\n", ep.Kind, ep.Symbol, ep.Path, ep.Line)
-	}
+	fmt.Fprintln(p.Out, ir.FormatBrief(reply))
 	return 0
 }
 

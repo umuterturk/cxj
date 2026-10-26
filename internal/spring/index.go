@@ -15,6 +15,7 @@ type Index struct {
 	transactions []TransactionDecl
 	repositories []RepositoryRel
 	entrypoints  []ir.Entrypoint
+	httpClients  []string
 }
 
 // Build merges facts.
@@ -27,13 +28,137 @@ func Build(facts []Facts) *Index {
 		idx.transactions = append(idx.transactions, f.Transactions...)
 		idx.repositories = append(idx.repositories, f.Repositories...)
 		idx.entrypoints = append(idx.entrypoints, f.Entrypoints...)
+		idx.httpClients = append(idx.httpClients, f.HTTPClients...)
 	}
 	return idx
 }
 
+// HasSpringBoot reports a @SpringBootApplication type (not a plain main).
+func (idx *Index) HasSpringBoot() bool {
+	if idx == nil {
+		return false
+	}
+	for _, ep := range idx.entrypoints {
+		if ep.Kind == "boot" {
+			return true
+		}
+	}
+	return false
+}
+
+// BriefHTTP is every controller mapping as method + route.
+func (idx *Index) BriefHTTP() []ir.BriefHTTP {
+	if idx == nil {
+		return nil
+	}
+	eps := idx.Endpoints("", "")
+	seen := map[string]bool{}
+	var out []ir.BriefHTTP
+	for _, e := range eps {
+		key := e.HTTPMethod + "\t" + e.Route
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ir.BriefHTTP{Method: e.HTTPMethod, Route: e.Route})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Route != out[j].Route {
+			return out[i].Route < out[j].Route
+		}
+		return out[i].Method < out[j].Method
+	})
+	return out
+}
+
+var briefIngressKinds = map[string]bool{
+	"runner": true, "scheduled": true, "kafka": true,
+	"rabbit": true, "jms": true, "sqs": true, "event": true,
+}
+
+// BriefIngress is runners, listeners, and schedulers (compact symbols).
+func (idx *Index) BriefIngress() []ir.BriefIngress {
+	if idx == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []ir.BriefIngress
+	for _, ep := range idx.entrypoints {
+		if !briefIngressKinds[ep.Kind] {
+			continue
+		}
+		sym := shortBriefSymbol(ep.Symbol)
+		key := ep.Kind + " " + sym
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ir.BriefIngress{Kind: ep.Kind, Symbol: sym})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Symbol < out[j].Symbol
+	})
+	return out
+}
+
+// OutboundHTTP is short client/system names.
+func (idx *Index) OutboundHTTP() []string {
+	if idx == nil {
+		return nil
+	}
+	return uniqueSorted(idx.httpClients)
+}
+
+// OutboundDB is persistence aggregate/entity names from Spring Data repos.
+func (idx *Index) OutboundDB() []string {
+	if idx == nil {
+		return nil
+	}
+	var names []string
+	for _, r := range idx.repositories {
+		name := r.Entity
+		if name == "" {
+			name = strings.TrimSuffix(simpleName(r.Symbol), "Repository")
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return uniqueSorted(names)
+}
+
+func shortBriefSymbol(sym string) string {
+	parts := strings.Split(sym, ".")
+	if len(parts) == 0 {
+		return sym
+	}
+	last := parts[len(parts)-1]
+	if last != "" && last[0] >= 'a' && last[0] <= 'z' && len(parts) >= 2 {
+		return parts[len(parts)-2] + "." + last
+	}
+	return last
+}
+
+func uniqueSorted(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // AllEntrypoints returns every parsed ingress site.
 func (idx *Index) AllEntrypoints() []ir.Entrypoint {
-	if idx.entrypoints == nil {
+	if idx == nil || idx.entrypoints == nil {
 		return []ir.Entrypoint{}
 	}
 	out := append([]ir.Entrypoint{}, idx.entrypoints...)
