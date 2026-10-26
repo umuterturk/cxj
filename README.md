@@ -35,5 +35,5 @@ cxj callers | callees | references | keys
 cxj endpoints | beans | config | context | status
 cxj ask          # optional; prompts to download Needle 3 if missing
 cxj COMMAND --example   # 2-3 workspace examples
-cxj install | install -g
+cxj install | install -g | version | update
 ```

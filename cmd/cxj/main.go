@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"example.com/cx/internal/ask"
@@ -13,6 +14,8 @@ import (
 	"example.com/cx/internal/needle"
 	"example.com/cx/internal/scan"
 	"example.com/cx/internal/skill"
+	"example.com/cx/internal/update"
+	"example.com/cx/internal/version"
 )
 
 func main() {
@@ -55,6 +58,12 @@ func main() {
 		os.Exit(runAsk(os.Args[2:]))
 	case "install":
 		os.Exit(runInstall(os.Args[2:]))
+	case "version":
+		os.Exit(runVersion(os.Args[2:]))
+	case "update":
+		os.Exit(runUpdate(os.Args[2:]))
+	case "--version", "-version":
+		os.Exit(runVersion(os.Args[2:]))
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -84,8 +93,97 @@ func usage() {
   cxj ask QUESTION [--root PATH] [--download] [--show-command] [--verbose] [--json]
   cxj install               # project: .agents/skills + .claude/skills symlink
   cxj install -g            # global: ~/.agents/skills + symlink; macOS: ~/bin/cxj
+  cxj version [--json]
+  cxj update [--check] [--json]
   cxj COMMAND --example     # 2-3 workspace examples
 `)
+}
+
+func runVersion(args []string) int {
+	asJSON := false
+	for _, a := range args {
+		switch a {
+		case "--example", "-example":
+			return printStaticExamples("version")
+		case "--json":
+			asJSON = true
+		case "-h", "--help":
+			fmt.Fprintf(os.Stderr, "usage: cxj version [--json]\n")
+			return 0
+		default:
+			fmt.Fprintf(os.Stderr, "unknown version flag %q\n", a)
+			return 2
+		}
+	}
+	if asJSON {
+		return cli.NewPrinter().JSON(map[string]string{"name": "cxj", "version": version.Current()})
+	}
+	fmt.Println(version.Line())
+	return 0
+}
+
+func runUpdate(args []string) int {
+	check := false
+	asJSON := false
+	for _, a := range args {
+		switch a {
+		case "--example", "-example":
+			return printStaticExamples("update")
+		case "--check":
+			check = true
+		case "--json":
+			asJSON = true
+		case "-h", "--help":
+			fmt.Fprintf(os.Stderr, "usage: cxj update [--check] [--json]\n")
+			return 0
+		default:
+			fmt.Fprintf(os.Stderr, "unknown update flag %q\n", a)
+			return 2
+		}
+	}
+	c := &update.Client{}
+	if check {
+		res, err := c.Check()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			return 1
+		}
+		return printUpdate(res, asJSON)
+	}
+	dest, err := update.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 1
+	}
+	res, err := c.Apply(dest)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 1
+	}
+	if !res.UpToDate {
+		cmd := exec.Command(dest, "install", "-g")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "note: binary updated; skill refresh failed: %s\n%s", err, out)
+		}
+	}
+	return printUpdate(res, asJSON)
+}
+
+func printUpdate(res update.Result, asJSON bool) int {
+	if asJSON {
+		return cli.NewPrinter().JSON(res)
+	}
+	if res.UpToDate {
+		fmt.Printf("%s (latest)\n", version.Line())
+		return 0
+	}
+	if res.Path != "" {
+		fmt.Printf("%s -> %s\n", res.Current, res.Latest)
+		fmt.Println(res.Path)
+		return 0
+	}
+	fmt.Printf("%s latest=%s\n", version.Line(), res.Latest)
+	return 0
 }
 
 func runInstall(args []string) int {

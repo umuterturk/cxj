@@ -145,6 +145,13 @@ func (e *Engine) Examples(cmd string) []Example {
 			{Cmd: "cxj install", Why: "project .agents/skills + .claude symlink"},
 			{Cmd: "cxj install -g", Why: "global ~/.agents/skills + symlink; macOS ~/bin"},
 		}
+	case "version":
+		return []Example{{Cmd: "cxj version", Why: "print the installed cxj version"}}
+	case "update":
+		return []Example{
+			{Cmd: "cxj update --check", Why: "compare to the latest GitHub release"},
+			{Cmd: "cxj update", Why: "replace this binary with the latest release"},
+		}
 	default:
 		return []Example{{Cmd: "cxj brief", Why: "start here"}}
 	}
@@ -313,6 +320,13 @@ func StaticExamples(cmd string) []Example {
 		return []Example{
 			{Cmd: "cxj install", Why: "project .agents/skills + .claude symlink"},
 			{Cmd: "cxj install -g", Why: "global ~/.agents/skills + symlink; macOS ~/bin"},
+		}
+	case "version":
+		return []Example{{Cmd: "cxj version", Why: "print the installed cxj version"}}
+	case "update":
+		return []Example{
+			{Cmd: "cxj update --check", Why: "compare to the latest GitHub release"},
+			{Cmd: "cxj update", Why: "replace this binary with the latest release"},
 		}
 	default:
 		return []Example{{Cmd: "cxj brief", Why: "start here"}}

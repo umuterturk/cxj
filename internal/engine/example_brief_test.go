@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+func TestStaticExamples_versionUpdate(t *testing.T) {
+	ver := StaticExamples("version")
+	if len(ver) != 1 || ver[0].Cmd != "cxj version" {
+		t.Fatalf("%+v", ver)
+	}
+	up := StaticExamples("update")
+	if len(up) != 2 || up[0].Cmd != "cxj update --check" {
+		t.Fatalf("%+v", up)
+	}
+}
+
 func TestExamples_briefWhy(t *testing.T) {
 	eng, err := Open(writeTree(t, map[string]string{
 		"src/main/java/com/example/App.java": "package com.example; class App {}",

@@ -20,8 +20,13 @@ esac
 out="${1:-$root/dist/$platform}"
 mkdir -p "$out"
 
-echo "building cxj -> $out/cxj"
-go build -o "$out/cxj" ./cmd/cxj
+ver="$(git describe --tags --always --dirty 2>/dev/null || true)"
+ldflags="-s -w"
+if [[ -n "$ver" ]]; then
+  ldflags="$ldflags -X example.com/cx/internal/version.Version=$ver"
+fi
+echo "building cxj -> $out/cxj ($ver)"
+go build -trimpath -ldflags="$ldflags" -o "$out/cxj" ./cmd/cxj
 chmod +x "$out/cxj"
 
 weights="needle3.cact"

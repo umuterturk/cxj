@@ -18,4 +18,4 @@ cxj beans --type SomeType
 cxj config --key a.b.c             # only when you need a value
 ```
 
-Workflow: `brief` → `trail SYMBOL` → `show`/`callees`. Need a real argument? `cxj trail --example` (works on every command). `--json` is full; add `--compact` to keep it small. Re-run after edits. `ask` is optional; first use downloads Needle 3 if you confirm. `cxj install` writes this skill to `.agents/skills` and symlinks `.claude/skills`; `cxj install -g` does the same under `$HOME` and on macOS copies the binary to `~/bin/cxj`.
+Workflow: `brief` → `trail SYMBOL` → `show`/`callees`. Need a real argument? `cxj trail --example` (works on every command). `--json` is full; add `--compact` to keep it small. Re-run after edits. `ask` is optional; first use downloads Needle 3 if you confirm. `cxj install` writes this skill to `.agents/skills` and symlinks `.claude/skills`; `cxj install -g` does the same under `$HOME` and on macOS copies the binary to `~/bin/cxj`. `cxj version` prints the CLI version; `cxj update` replaces the binary from the latest GitHub release.
