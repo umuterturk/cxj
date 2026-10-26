@@ -7,7 +7,7 @@ description: Token-cheap Java/Spring workspace queries via the cxj CLI (j = Java
 Index `--root` (default cwd) in RAM and exit. Default text is compact. Do not pass `--verbose`. Never run `status`. Never run `ask` unless the question is vague. Do not read a file when `show`/`outline`/`trail` exists.
 
 ```
-cxj brief                          # first call: kind, packages, ALL ingress, profiles
+cxj brief                          # first call: kind, entry pkg+depth1 (main|test), ALL ingress, profiles
 cxj trail SYMBOL                   # one hop: http, injects, callers, callees, tests
 cxj find QUERY [--limit 5]
 cxj show SYMBOL | cxj outline PATH|SYMBOL

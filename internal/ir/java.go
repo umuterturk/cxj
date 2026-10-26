@@ -163,18 +163,20 @@ type Entrypoint struct {
 // BriefPackage is a package row in cx brief.
 type BriefPackage struct {
 	Name  string `json:"name"`
+	Scope string `json:"scope"` // main | test
 	Types int    `json:"types"`
 }
 
 // BriefReply is the cx brief --json payload.
 type BriefReply struct {
-	Kind        string         `json:"kind"`
-	JavaFiles   int            `json:"java_files"`
-	Types       int            `json:"types"`
-	Packages    []BriefPackage `json:"packages"`
-	Entrypoints []Entrypoint   `json:"entrypoints"`
-	Profiles    []string       `json:"profiles"`
-	TestClasses int            `json:"test_classes"`
+	Kind         string         `json:"kind"`
+	JavaFiles    int            `json:"java_files"`
+	Types        int            `json:"types"`
+	Packages     []BriefPackage `json:"packages"`
+	PackageTotal int            `json:"packages_total"`
+	Entrypoints  []Entrypoint   `json:"entrypoints"`
+	Profiles     []string       `json:"profiles"`
+	TestClasses  int            `json:"test_classes"`
 }
 
 // TrailHit is one compact related symbol in cx trail.
