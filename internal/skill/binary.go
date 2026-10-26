@@ -9,19 +9,38 @@ import (
 	"strings"
 )
 
-// BinDir is the user-local install directory for the cxj binary ($HOME/bin).
-func BinDir(home string) string {
-	return filepath.Join(home, "bin")
+const defaultBinDir = "/usr/local/bin"
+
+// InstallBinDir is the on-PATH directory for the cxj executable.
+// CXJ_BIN_DIR overrides for tests. Prefer /usr/local/bin; if that is not
+// writable, use /opt/homebrew/bin when that directory exists.
+func InstallBinDir() string {
+	if d := strings.TrimSpace(os.Getenv("CXJ_BIN_DIR")); d != "" {
+		return d
+	}
+	if dirWritable(defaultBinDir) {
+		return defaultBinDir
+	}
+	if dirWritable("/opt/homebrew/bin") {
+		return "/opt/homebrew/bin"
+	}
+	return defaultBinDir
 }
 
-// InstallBinary copies the running executable to $HOME/bin/cxj on macOS.
-// Other platforms are skipped (empty path, nil error).
+// BinDir is the directory that will receive the binary. home is unused;
+// kept so existing callers compile.
+func BinDir(home string) string {
+	_ = home
+	return InstallBinDir()
+}
+
+// InstallBinary copies the running executable to InstallBinDir()/cxj,
+// overwriting any existing file or symlink. Skipped on OSes without a
+// conventional /usr/local/bin.
 func InstallBinary(home string) (string, error) {
-	if runtime.GOOS != "darwin" {
+	_ = home
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return "", nil
-	}
-	if home == "" {
-		return "", fmt.Errorf("home directory is empty")
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -31,19 +50,17 @@ func InstallBinary(home string) (string, error) {
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
 		src = real
 	}
-	dir := BinDir(home)
+	dir := InstallBinDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	dest := filepath.Join(dir, "cxj")
 	if samePath(src, dest) {
+		_ = os.Chmod(dest, 0755)
 		return dest, nil
 	}
-	if err := copyFile(src, dest); err != nil {
+	if err := overwriteFile(src, dest); err != nil {
 		return "", err
-	}
-	if err := os.Chmod(dest, 0755); err != nil {
-		return "", fmt.Errorf("chmod %s: %w", dest, err)
 	}
 	return dest, nil
 }
@@ -72,6 +89,21 @@ func BinOnPATH(dir, pathEnv string) bool {
 	return false
 }
 
+func dirWritable(dir string) bool {
+	st, err := os.Stat(dir)
+	if err != nil || !st.IsDir() {
+		return false
+	}
+	f, err := os.CreateTemp(dir, ".cxj-write-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
+}
+
 func samePath(a, b string) bool {
 	aa, err := filepath.Abs(a)
 	if err != nil {
@@ -84,7 +116,7 @@ func samePath(a, b string) bool {
 	return aa == bb
 }
 
-func copyFile(src, dest string) error {
+func overwriteFile(src, dest string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src, err)
@@ -110,6 +142,11 @@ func copyFile(src, dest string) error {
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp: %w", err)
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		if err := os.Remove(dest); err != nil {
+			return fmt.Errorf("overwrite %s: %w", dest, err)
+		}
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
 		return fmt.Errorf("install %s: %w", dest, err)

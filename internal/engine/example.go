@@ -143,7 +143,7 @@ func (e *Engine) Examples(cmd string) []Example {
 	case "install":
 		return []Example{
 			{Cmd: "cxj install", Why: "project .agents/skills + .claude symlink"},
-			{Cmd: "cxj install -g", Why: "global ~/.agents/skills + symlink; macOS ~/bin"},
+			{Cmd: "cxj install -g", Why: "global ~/.agents/skills + symlink; /usr/local/bin/cxj"},
 		}
 	case "version":
 		return []Example{{Cmd: "cxj version", Why: "print the installed cxj version"}}
@@ -319,7 +319,7 @@ func StaticExamples(cmd string) []Example {
 	case "install":
 		return []Example{
 			{Cmd: "cxj install", Why: "project .agents/skills + .claude symlink"},
-			{Cmd: "cxj install -g", Why: "global ~/.agents/skills + symlink; macOS ~/bin"},
+			{Cmd: "cxj install -g", Why: "global ~/.agents/skills + symlink; /usr/local/bin/cxj"},
 		}
 	case "version":
 		return []Example{{Cmd: "cxj version", Why: "print the installed cxj version"}}

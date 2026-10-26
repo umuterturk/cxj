@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"example.com/cx/internal/ask"
@@ -92,7 +93,7 @@ func usage() {
   cxj status [--root PATH] [--json]
   cxj ask QUESTION [--root PATH] [--download] [--show-command] [--verbose] [--json]
   cxj install               # project: .agents/skills + .claude/skills symlink
-  cxj install -g            # global: ~/.agents/skills + symlink; macOS: ~/bin/cxj
+  cxj install -g            # global: ~/.agents/skills + symlink; /usr/local/bin/cxj
   cxj version [--json]
   cxj update [--check] [--json]
   cxj COMMAND --example     # 2-3 workspace examples
@@ -237,8 +238,8 @@ func runInstallGlobal() int {
 		code = 1
 	} else if bin != "" {
 		fmt.Println(bin)
-		if !skill.BinOnPATH(skill.BinDir(home), os.Getenv("PATH")) {
-			fmt.Fprintf(os.Stderr, "note: %s is not on PATH; add: export PATH=\"$HOME/bin:$PATH\"\n", skill.BinDir(home))
+		if !skill.BinOnPATH(filepath.Dir(bin), os.Getenv("PATH")) {
+			fmt.Fprintf(os.Stderr, "note: %s is not on PATH\n", filepath.Dir(bin))
 		}
 	}
 	written, err := skill.InstallGlobal(home)

@@ -10,7 +10,7 @@ macOS arm64 release binary (from [Releases](https://github.com/umuterturk/cxj/re
 
 ```sh
 # unzip cxj-macos-arm64.zip, then:
-./cxj install -g   # ~/bin/cxj + global agent skill
+./cxj install -g   # /usr/local/bin/cxj + global agent skill
 ```
 
 ## Build
@@ -22,7 +22,7 @@ go build -o bin/cxj ./cmd/cxj
 
 ```sh
 ./bin/cxj install      # project skill (.agents + .claude symlink)
-./bin/cxj install -g   # global skill + macOS ~/bin/cxj
+./bin/cxj install -g   # global skill + /usr/local/bin/cxj
 ./bin/cxj brief --root /path/to/workspace
 ./bin/cxj ask 'who calls OwnerController' --root /path/to/workspace
 ```
