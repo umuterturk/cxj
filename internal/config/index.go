@@ -3,6 +3,8 @@ package config
 import (
 	"sort"
 	"strings"
+
+	"example.com/cx/internal/ir"
 )
 
 // Reply is the GET /v1/config payload.
@@ -185,6 +187,68 @@ func (idx *Index) resolve(defs []Definition, profile string, forms []string) (st
 		return Redacted, "known"
 	}
 	return val, "known"
+}
+
+// Profiles returns distinct profile names (empty default omitted).
+func (idx *Index) Profiles() []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, d := range idx.defs {
+		if d.Profile == "" {
+			continue
+		}
+		if _, ok := seen[d.Profile]; ok {
+			continue
+		}
+		seen[d.Profile] = struct{}{}
+		out = append(out, d.Profile)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Keys lists unique config keys without values.
+func (idx *Index) Keys() ir.KeysReply {
+	type agg struct {
+		profiles map[string]struct{}
+		defs     []Definition
+	}
+	byKey := map[string]*agg{}
+	for _, d := range idx.defs {
+		a := byKey[d.Key]
+		if a == nil {
+			a = &agg{profiles: map[string]struct{}{}}
+			byKey[d.Key] = a
+		}
+		a.defs = append(a.defs, d)
+		if d.Profile != "" {
+			a.profiles[d.Profile] = struct{}{}
+		} else {
+			a.profiles["default"] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(byKey))
+	for k := range byKey {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := ir.KeysReply{Profiles: idx.Profiles(), Keys: make([]ir.KeyRow, 0, len(keys))}
+	for _, k := range keys {
+		a := byKey[k]
+		profs := make([]string, 0, len(a.profiles))
+		for p := range a.profiles {
+			profs = append(profs, p)
+		}
+		sort.Strings(profs)
+		_, res := idx.resolve(a.defs, "", RelaxedForms(k))
+		out.Keys = append(out.Keys, ir.KeyRow{
+			Key:        k,
+			Profiles:   profs,
+			Resolution: res,
+			Secret:     IsSecretKey(k) || secretAmong(a.defs),
+		})
+	}
+	return out
 }
 
 func pickBest(defs []Definition, profile string, imports map[string][]string) *Definition {

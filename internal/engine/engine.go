@@ -27,6 +27,7 @@ type Engine struct {
 	root   string
 	stats  scan.Stats
 	gen    int
+	facts  []ir.FileFacts
 	syms   *index.SymbolIndex
 	text   *index.TextIndex
 	spring *spring.Index
@@ -76,6 +77,7 @@ func Open(root string, opts Options) (*Engine, error) {
 		root:   root,
 		stats:  res.Stats,
 		gen:    1,
+		facts:  facts,
 		syms:   index.Build(facts),
 		text:   index.BuildText(textLines),
 		spring: spring.Build(springFacts),
@@ -112,7 +114,7 @@ func (e *Engine) Status() ir.Status {
 // Search runs lexical symbol + text search.
 func (e *Engine) Search(q string, limit int) ir.SearchReply {
 	if limit <= 0 {
-		limit = 10
+		limit = ir.DefaultFindLimit
 	}
 	if limit > 50 {
 		limit = 50
@@ -163,13 +165,53 @@ func rankMatch(m ir.MatchKind) int {
 	}
 }
 
-// References looks up symbol uses.
+// References looks up symbol uses. If the name has no exact hits, resolve it
+// through lexical/fuzzy search and retry — do not invent exact dispatch.
 func (e *Engine) References(symbol string) ir.RefReply {
 	results := e.syms.References(symbol)
+	resolved := ""
+	if len(results) == 0 {
+		if name, ok := resolveSymbolName(e.syms.Search(symbol, 5)); ok && !strings.EqualFold(name, symbol) {
+			resolved = name
+			results = e.syms.References(name)
+		}
+	}
 	if results == nil {
 		results = []ir.RefResult{}
 	}
-	return ir.RefReply{Results: results}
+	return ir.RefReply{Results: results, Resolved: resolved}
+}
+
+// Callers is References filtered to use sites only.
+func (e *Engine) Callers(symbol string) ir.RefReply {
+	reply := e.References(symbol)
+	var uses []ir.RefResult
+	for _, r := range reply.Results {
+		if r.Kind == ir.RefKindUse {
+			uses = append(uses, r)
+		}
+	}
+	if uses == nil {
+		uses = []ir.RefResult{}
+	}
+	reply.Results = uses
+	return reply
+}
+
+func resolveSymbolName(hits []ir.SearchResult) (string, bool) {
+	for _, h := range hits {
+		if h.Kind == ir.KindText || h.Kind == ir.KindConfig {
+			continue
+		}
+		name := h.Symbol
+		if i := strings.LastIndexByte(name, '.'); i >= 0 {
+			name = name[i+1:]
+		}
+		if name != "" {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // Endpoints lists Spring HTTP mappings.
@@ -202,3 +244,24 @@ func (e *Engine) Config(key, profile string) any {
 
 // Root returns the workspace root used for this snapshot.
 func (e *Engine) Root() string { return e.root }
+
+// Callees lists outbound call sites from symbol.
+func (e *Engine) Callees(symbol string) ir.RefReply {
+	results := e.syms.Callees(symbol)
+	resolved := ""
+	if len(results) == 0 {
+		if name, ok := resolveSymbolName(e.syms.Search(symbol, 5)); ok && !strings.EqualFold(name, symbol) {
+			resolved = name
+			results = e.syms.Callees(name)
+		}
+	}
+	if results == nil {
+		results = []ir.RefResult{}
+	}
+	return ir.RefReply{Results: results, Resolved: resolved}
+}
+
+// Keys lists config key names without values.
+func (e *Engine) Keys() ir.KeysReply {
+	return e.cfg.Keys()
+}

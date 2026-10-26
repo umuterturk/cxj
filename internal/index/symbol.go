@@ -111,6 +111,7 @@ func (idx *SymbolIndex) References(symbol string) []ir.RefResult {
 				Path:      d.Path,
 				Line:      d.Span.Line,
 				Target:    d.Qualified,
+				Kind:      ir.RefKindDef,
 				Certainty: ir.CertaintyExact,
 			})
 		}
@@ -129,6 +130,7 @@ func (idx *SymbolIndex) References(symbol string) []ir.RefResult {
 					Path:      d.Path,
 					Line:      d.Span.Line,
 					Target:    d.Qualified,
+					Kind:      ir.RefKindImpl,
 					Certainty: ir.CertaintyCandidate,
 				})
 			}
@@ -147,6 +149,7 @@ func (idx *SymbolIndex) References(symbol string) []ir.RefResult {
 			Path:      e.Path,
 			Line:      e.Span.Line,
 			Target:    symbol,
+			Kind:      ir.RefKindUse,
 			Certainty: ir.CertaintyCandidate,
 		})
 	}
@@ -161,6 +164,150 @@ func (idx *SymbolIndex) References(symbol string) []ir.RefResult {
 		return out[i].Target < out[j].Target
 	})
 	return out
+}
+
+// Callers returns only use sites for symbol (no declaration or implementor rows).
+func (idx *SymbolIndex) Callers(symbol string) []ir.RefResult {
+	var out []ir.RefResult
+	for _, r := range idx.References(symbol) {
+		if r.Kind == ir.RefKindUse {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Callees returns outbound call sites from symbol (type or method).
+func (idx *SymbolIndex) Callees(symbol string) []ir.RefResult {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return nil
+	}
+	simple := symbol
+	if i := strings.LastIndexByte(symbol, '.'); i >= 0 {
+		simple = symbol[i+1:]
+	}
+	var out []ir.RefResult
+	seen := map[string]struct{}{}
+	for _, e := range idx.edges {
+		if e.Kind != "calls" {
+			continue
+		}
+		if !fromMatches(e.From, symbol, simple) {
+			continue
+		}
+		r := ir.RefResult{
+			Path: e.Path, Line: e.Span.Line, Target: e.To,
+			Kind: ir.RefKindUse, Certainty: ir.CertaintyCandidate,
+		}
+		key := r.Path + "|" + strconv.Itoa(r.Line) + "|" + r.Target
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, r)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Line < out[j].Line
+	})
+	return out
+}
+
+func fromMatches(from, symbol, simple string) bool {
+	if from == symbol || from == simple {
+		return true
+	}
+	if strings.HasPrefix(from, symbol+".") || strings.HasPrefix(from, simple+".") {
+		return true
+	}
+	if strings.HasSuffix(from, "."+simple) || strings.HasSuffix(from, "."+symbol) {
+		return true
+	}
+	if i := strings.LastIndexByte(from, '.'); i >= 0 && from[i+1:] == simple {
+		return true
+	}
+	return false
+}
+
+// Heritage returns extends/implements edges for symbol.
+func (idx *SymbolIndex) Heritage(symbol string) (supers, subtypes []ir.Edge) {
+	simple := symbol
+	if i := strings.LastIndexByte(symbol, '.'); i >= 0 {
+		simple = symbol[i+1:]
+	}
+	match := func(name string) bool {
+		return name == symbol || name == simple || strings.HasSuffix(name, "."+simple) || strings.HasSuffix(name, "."+symbol)
+	}
+	for _, e := range idx.edges {
+		if e.Kind != "extends" && e.Kind != "implements" {
+			continue
+		}
+		if match(e.From) {
+			supers = append(supers, e)
+		}
+		if match(e.To) {
+			subtypes = append(subtypes, e)
+		}
+	}
+	return supers, subtypes
+}
+
+// TestTypes returns type definitions in test files that mention symbol.
+func (idx *SymbolIndex) TestTypes(symbol string) []ir.Definition {
+	simple := symbol
+	if i := strings.LastIndexByte(symbol, '.'); i >= 0 {
+		simple = symbol[i+1:]
+	}
+	var out []ir.Definition
+	for _, d := range idx.defs {
+		switch d.Kind {
+		case ir.SymbolClass, ir.SymbolInterface, ir.SymbolEnum:
+		default:
+			continue
+		}
+		if !isTestFile(d.Path) {
+			continue
+		}
+		if d.Name == simple || strings.Contains(d.Name, simple) || strings.Contains(d.Qualified, simple) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func isTestFile(p string) bool {
+	return strings.Contains(p, "/src/test/") || strings.HasPrefix(p, "src/test/") ||
+		strings.HasSuffix(p, "Test.java") || strings.HasSuffix(p, "Tests.java")
+}
+
+// Lookup finds a definition by qualified or simple name. Types win over members.
+func (idx *SymbolIndex) Lookup(symbol string) (ir.Definition, bool) {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return ir.Definition{}, false
+	}
+	var named []ir.Definition
+	for _, d := range idx.defs {
+		if d.Qualified == symbol {
+			return d, true
+		}
+		if d.Name == symbol || strings.HasSuffix(d.Qualified, "."+symbol) {
+			named = append(named, d)
+		}
+	}
+	if len(named) == 0 {
+		return ir.Definition{}, false
+	}
+	for _, d := range named {
+		switch d.Kind {
+		case ir.SymbolClass, ir.SymbolInterface, ir.SymbolEnum:
+			return d, true
+		}
+	}
+	return named[0], true
 }
 
 func (idx *SymbolIndex) implementors(iface string) map[string]struct{} {

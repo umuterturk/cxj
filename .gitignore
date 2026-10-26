@@ -1,4 +1,8 @@
 bin/
+dist/
 .DS_Store
-testdata/external/spring-petclinic/
-third_party/
+.agents/
+.claude/
+needle/*.dylib
+needle/*.so
+needle/*.cact

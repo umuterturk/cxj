@@ -12,6 +12,11 @@ import (
 func SplitArgs(args []string) (flags, positional []string, err error) {
 	boolFlags := map[string]struct{}{
 		"--json": {}, "-json": {},
+		"--show-command": {}, "-show-command": {},
+		"--compact": {}, "-compact": {},
+		"--verbose": {}, "-verbose": {},
+		"--download": {}, "-download": {},
+		"--example": {}, "-example": {},
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]

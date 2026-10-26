@@ -14,6 +14,7 @@ type Index struct {
 	injections   []Injection
 	transactions []TransactionDecl
 	repositories []RepositoryRel
+	entrypoints  []ir.Entrypoint
 }
 
 // Build merges facts.
@@ -25,8 +26,41 @@ func Build(facts []Facts) *Index {
 		idx.injections = append(idx.injections, f.Injections...)
 		idx.transactions = append(idx.transactions, f.Transactions...)
 		idx.repositories = append(idx.repositories, f.Repositories...)
+		idx.entrypoints = append(idx.entrypoints, f.Entrypoints...)
 	}
 	return idx
+}
+
+// AllEntrypoints returns every parsed ingress site.
+func (idx *Index) AllEntrypoints() []ir.Entrypoint {
+	if idx.entrypoints == nil {
+		return []ir.Entrypoint{}
+	}
+	out := append([]ir.Entrypoint{}, idx.entrypoints...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Line < out[j].Line
+	})
+	return out
+}
+
+// InjectionsFor returns constructor/field injections whose consumer matches symbol.
+func (idx *Index) InjectionsFor(symbol string) []Injection {
+	symbol = strings.TrimSpace(symbol)
+	simple := simpleName(symbol)
+	var out []Injection
+	for _, in := range idx.injections {
+		if in.Consumer == symbol || simpleName(in.Consumer) == simple ||
+			strings.HasSuffix(in.Consumer, "."+simple) || strings.HasPrefix(in.Consumer, symbol) {
+			out = append(out, in)
+		}
+	}
+	return out
 }
 
 // EndpointResult is one /v1/endpoints hit.

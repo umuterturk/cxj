@@ -99,6 +99,7 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, scope *typeScope, f
 			Qualified: qual,
 			Kind:      kind,
 			Owner:     ownerQual(scope),
+			Package:   pkg,
 			Path:      path,
 			Span:      spanOf(n, src),
 			Certainty: ir.CertaintyExact,
@@ -135,27 +136,30 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, scope *typeScope, f
 			kind = ir.SymbolConstructor
 		}
 		qual := scope.qualified + "." + name
+		full := spanOf(n, src)
+		full.Line = spanOf(nameNode, src).Line
 		facts.Definitions = append(facts.Definitions, ir.Definition{
 			Name:      name,
 			Qualified: qual,
 			Kind:      kind,
 			Owner:     scope.qualified,
+			Package:   pkg,
 			Signature: sig,
 			Path:      path,
-			Span:      spanOf(nameNode, src),
+			Span:      full,
 			Certainty: ir.CertaintyExact,
 		})
 		// Walk body for invocations
 		body := n.ChildByFieldName("body")
 		if body != nil {
-			walkInvocations(body, src, path, scope, facts)
+			walkInvocations(body, src, path, qual, facts)
 		}
 		return
 	case "field_declaration":
 		if scope == nil {
 			break
 		}
-		collectFields(n, src, path, scope, facts)
+		collectFields(n, src, path, facts.Package, scope, facts)
 		return
 	}
 	for i := uint(0); i < n.NamedChildCount(); i++ {
@@ -189,7 +193,7 @@ func collectTypeHeritage(n *tree_sitter.Node, src []byte, path, qual string, fac
 	}
 }
 
-func collectFields(n *tree_sitter.Node, src []byte, path string, scope *typeScope, facts *ir.FileFacts) {
+func collectFields(n *tree_sitter.Node, src []byte, path, pkg string, scope *typeScope, facts *ir.FileFacts) {
 	for i := uint(0); i < n.NamedChildCount(); i++ {
 		c := n.NamedChild(i)
 		if c == nil || c.Kind() != "variable_declarator" {
@@ -208,6 +212,7 @@ func collectFields(n *tree_sitter.Node, src []byte, path string, scope *typeScop
 			Qualified: scope.qualified + "." + name,
 			Kind:      ir.SymbolField,
 			Owner:     scope.qualified,
+			Package:   pkg,
 			Path:      path,
 			Span:      spanOf(nameNode, src),
 			Certainty: ir.CertaintyExact,
@@ -215,19 +220,19 @@ func collectFields(n *tree_sitter.Node, src []byte, path string, scope *typeScop
 	}
 }
 
-func walkInvocations(n *tree_sitter.Node, src []byte, path string, scope *typeScope, facts *ir.FileFacts) {
+func walkInvocations(n *tree_sitter.Node, src []byte, path, from string, facts *ir.FileFacts) {
 	if n == nil {
 		return
 	}
 	if n.Kind() == "method_invocation" {
-		extractInvocation(n, src, path, scope, facts)
+		extractInvocation(n, src, path, from, facts)
 	}
 	for i := uint(0); i < n.NamedChildCount(); i++ {
-		walkInvocations(n.NamedChild(i), src, path, scope, facts)
+		walkInvocations(n.NamedChild(i), src, path, from, facts)
 	}
 }
 
-func extractInvocation(n *tree_sitter.Node, src []byte, path string, scope *typeScope, facts *ir.FileFacts) {
+func extractInvocation(n *tree_sitter.Node, src []byte, path, from string, facts *ir.FileFacts) {
 	nameNode := n.ChildByFieldName("name")
 	if nameNode == nil {
 		return
@@ -258,7 +263,7 @@ func extractInvocation(n *tree_sitter.Node, src []byte, path string, scope *type
 	}
 	facts.Edges = append(facts.Edges, ir.Edge{
 		Kind:      "calls",
-		From:      scope.qualified,
+		From:      from,
 		To:        to,
 		Path:      path,
 		Span:      spanOf(nameNode, src),
@@ -360,10 +365,12 @@ func simplifyType(t string) string {
 
 func spanOf(n *tree_sitter.Node, src []byte) ir.Span {
 	start := n.StartByte()
+	end := n.EndByte()
 	return ir.Span{
 		Line:      lineAt(src, start),
+		EndLine:   lineAt(src, end),
 		StartByte: start,
-		EndByte:   n.EndByte(),
+		EndByte:   end,
 	}
 }
 

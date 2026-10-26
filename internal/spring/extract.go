@@ -72,6 +72,7 @@ type Facts struct {
 	Injections   []Injection
 	Transactions []TransactionDecl
 	Repositories []RepositoryRel
+	Entrypoints  []ir.Entrypoint
 }
 
 // Extractor parses Spring annotations via Tree-sitter.
@@ -162,9 +163,25 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 				out.Transactions = append(out.Transactions, TransactionDecl{
 					Symbol: qual, File: path, Line: lineAt(src, n.StartByte()),
 				})
+			case "SpringBootApplication":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "boot", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()),
+				})
+			case "ControllerAdvice", "RestControllerAdvice":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "advice", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()),
+				})
 			}
 		}
 		ci.implements = typeNamesFrom(n, src, "interfaces", "superclass", "super_interfaces", "extends_interfaces")
+		for _, impl := range ci.implements {
+			switch simplifyType(impl) {
+			case "CommandLineRunner", "ApplicationRunner":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "runner", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()), Detail: simplifyType(impl),
+				})
+			}
+		}
 
 		if isBeanStereo(ci.stereotypes) {
 			beanName := ci.beanName
@@ -215,6 +232,11 @@ func walkMember(n *tree_sitter.Node, src []byte, path string, class *classInfo, 
 		name := nodeText(nameNode, src)
 		symbol := class.qual + "." + name
 		anns := annotationsOf(n, src)
+		if name == "main" {
+			out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+				Kind: "boot", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+			})
+		}
 		for _, a := range anns {
 			switch a.Name {
 			case "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping", "RequestMapping":
@@ -224,9 +246,43 @@ func walkMember(n *tree_sitter.Node, src []byte, path string, class *classInfo, 
 					Path: route, HTTPMethod: method, Symbol: symbol,
 					File: path, Line: lineAt(src, nameNode.StartByte()), Certainty: ir.CertaintyExact,
 				})
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "http", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Detail: method + " " + route,
+				})
 			case "Transactional":
 				out.Transactions = append(out.Transactions, TransactionDecl{
 					Symbol: symbol, File: path, Line: lineAt(src, nameNode.StartByte()),
+				})
+			case "Scheduled":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "scheduled", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Detail: annotationDetail(a),
+				})
+			case "KafkaListener":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "kafka", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Detail: annotationDetail(a),
+				})
+			case "RabbitListener":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "rabbit", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Detail: annotationDetail(a),
+				})
+			case "JmsListener":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "jms", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Detail: annotationDetail(a),
+				})
+			case "SqsListener":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "sqs", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Detail: annotationDetail(a),
+				})
+			case "EventListener":
+				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
+					Kind: "event", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Detail: annotationDetail(a),
 				})
 			}
 		}
@@ -336,6 +392,13 @@ func firstStringArg(a annotation) string {
 
 func firstPath(a annotation) string {
 	return firstStringArg(a)
+}
+
+func annotationDetail(a annotation) string {
+	if s := firstStringArg(a); s != "" {
+		return s
+	}
+	return strings.TrimSpace(strings.Trim(a.Args, "()"))
 }
 
 func httpMethodOf(name string, a annotation) string {

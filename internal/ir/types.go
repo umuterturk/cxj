@@ -46,3 +46,9 @@ type SearchResult struct {
 type SearchReply struct {
 	Results []SearchResult `json:"results"`
 }
+
+// DefaultFindLimit is the compact default for cx find --limit.
+const DefaultFindLimit = 5
+
+// DefaultShowLines is the hard cap for cx show.
+const DefaultShowLines = 80

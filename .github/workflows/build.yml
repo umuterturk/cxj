@@ -1,0 +1,33 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: |
+          mkdir -p dist/macos-arm64
+          go build -trimpath -ldflags="-s -w" -o dist/macos-arm64/cxj ./cmd/cxj
+          file dist/macos-arm64/cxj
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxj-macos-arm64
+          path: dist/macos-arm64/cxj
+          if-no-files-found: error
