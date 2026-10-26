@@ -27,7 +27,7 @@ func writeTree(t *testing.T, files map[string]string) string {
 
 func openBrief(t *testing.T, files map[string]string) ir.BriefReply {
 	t.Helper()
-	eng, err := Open(writeTree(t, files), Options{})
+	eng, err := Open(writeTree(t, files), Options{BriefOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,14 +49,31 @@ func TestSelectBriefPackages_bootRootPlusDepth1(t *testing.T) {
 		t.Fatalf("roots=%v", roots)
 	}
 	got := selectBriefPackages(pkgTypes, roots, "main")
-	want := []string{"com.example.app", "com.example.app.owner", "com.example.app.vet"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v want names %v", got, want)
+	want := []ir.BriefPackage{
+		{Name: "com.example.app", Scope: "main", Types: 1},
+		{Name: "com.example.app.owner", Scope: "main", Types: 7}, // owner + owner.dto
+		{Name: "com.example.app.vet", Scope: "main", Types: 3},
 	}
-	for i, name := range want {
-		if got[i].Name != name || got[i].Scope != "main" {
-			t.Fatalf("got[%d]=%+v want %q main", i, got[i], name)
-		}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestSelectBriefPackages_synthesizeEmptyIntermediates(t *testing.T) {
+	pkgTypes := map[string]int{
+		"com.example.app":                          1,
+		"com.example.app.application.usecase":      4,
+		"com.example.app.infrastructure.adapter":   6,
+		"com.example.app.infrastructure.adapter.db": 2,
+	}
+	got := selectBriefPackages(pkgTypes, []string{"com.example.app"}, "main")
+	want := []ir.BriefPackage{
+		{Name: "com.example.app", Scope: "main", Types: 1},
+		{Name: "com.example.app.application", Scope: "main", Types: 4},
+		{Name: "com.example.app.infrastructure", Scope: "main", Types: 8},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
 	}
 }
 
@@ -69,7 +86,7 @@ func TestSelectBriefPackages_testScope(t *testing.T) {
 	if len(main) != 2 || main[0].Scope != "main" {
 		t.Fatalf("main=%v", main)
 	}
-	if len(test) != 1 || test[0].Name != "com.example.app.owner" || test[0].Scope != "test" || test[0].Types != 4 {
+	if len(test) != 1 || test[0].Name != "com.example.app.owner" || test[0].Scope != "test" || test[0].Types != 5 {
 		t.Fatalf("test=%v", test)
 	}
 }
@@ -85,7 +102,8 @@ func TestBriefRoots_fallbackShallow(t *testing.T) {
 		t.Fatalf("roots=%v", roots)
 	}
 	got := selectBriefPackages(pkgTypes, roots, "main")
-	if len(got) != 2 || got[0].Name != "com.acme" || got[1].Name != "com.acme.api" {
+	if len(got) != 2 || got[0].Name != "com.acme" || got[0].Types != 1 ||
+		got[1].Name != "com.acme.api" || got[1].Types != 5 {
 		t.Fatalf("got=%v", got)
 	}
 }
@@ -331,8 +349,14 @@ class Gateway {
   Gateway(RestTemplate restTemplate) { this.restTemplate = restTemplate; }
 }
 `,
+		"src/main/java/com/example/app/ZipRestAdapter.java": `
+package com.example.app;
+class ZipRestAdapter {
+  private final RestClient restClient;
+}
+`,
 	})
-	want := []string{"RestTemplate", "billing", "payments"}
+	want := []string{"Gateway", "ZipRestAdapter", "billing", "payments"}
 	if !reflect.DeepEqual(got.OutboundHTTP, want) {
 		t.Fatalf("out_http=%v want %v", got.OutboundHTTP, want)
 	}

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"example.com/cx/internal/config"
 	"example.com/cx/internal/index"
@@ -21,6 +22,9 @@ import (
 type Options struct {
 	Excludes []string
 	Logger   *log.Logger
+	// BriefOnly skips symbol/text/binding indexes and spring-extracts only main sources.
+	// Safe for Brief(); other commands need a full Open.
+	BriefOnly bool
 }
 
 // Engine is an immutable in-RAM snapshot of the workspace.
@@ -37,66 +41,153 @@ type Engine struct {
 	bootVer string
 }
 
+type fileSlot struct {
+	facts    *ir.FileFacts
+	spring   *spring.Facts
+	cfg      *config.FileFacts
+	bindings []config.Binding
+	text     []index.TextLine
+	ver      *versionHit
+}
+
 // Open scans root and builds lexical, Spring, and config indexes.
 func Open(root string, opts Options) (*Engine, error) {
 	res, err := scan.Scan(root, scan.Options{Excludes: opts.Excludes})
 	if err != nil {
 		return nil, err
 	}
-	ext := java.NewExtractor()
-	defer ext.Close()
-	springExt := spring.NewExtractor()
-	defer springExt.Close()
-	bindExt := config.NewBindingExtractor()
-	defer bindExt.Close()
 
-	var facts []ir.FileFacts
-	var springFacts []spring.Facts
-	var cfgFiles []config.FileFacts
+	n := len(res.Files)
+	slots := make([]fileSlot, n)
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > n && n > 0 {
+		workers = n
+	}
+
+	jobs := make(chan int, workers*2)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			javaExt := java.NewExtractor()
+			defer javaExt.Close()
+			springExt := spring.NewExtractor()
+			defer springExt.Close()
+			var bindExt *config.BindingExtractor
+			if !opts.BriefOnly {
+				bindExt = config.NewBindingExtractor()
+				defer bindExt.Close()
+			}
+			for i := range jobs {
+				f := res.Files[i]
+				base := filepath.Base(f.RelPath)
+				if opts.BriefOnly && !f.IsJava {
+					if !config.IsConfigFile(f.RelPath) && !isBuildFileName(base) {
+						continue
+					}
+				}
+				data, err := os.ReadFile(f.AbsPath)
+				if err != nil {
+					continue
+				}
+				var slot fileSlot
+				if j, b := parseBuildVersions(base, data); j != "" || b != "" {
+					slot.ver = &versionHit{
+						depth: strings.Count(f.RelPath, "/"),
+						java:  j,
+						boot:  b,
+					}
+				}
+				if f.IsJava {
+					ff, err := javaExt.Extract(f.RelPath, data)
+					if err != nil {
+						continue
+					}
+					slot.facts = &ff
+					// Brief only needs spring facts from main sources (HTTP/outbounds/runners).
+					if !opts.BriefOnly || !isTestPath(f.RelPath) {
+						sf := springExt.Extract(f.RelPath, data)
+						slot.spring = &sf
+					}
+					if bindExt != nil {
+						slot.bindings = bindExt.ExtractBindings(f.RelPath, data)
+					}
+					slots[i] = slot
+					continue
+				}
+				if cfg, err := config.ParseIfConfig(f.RelPath, data); err == nil && cfg != nil {
+					slot.cfg = cfg
+				}
+				if !opts.BriefOnly {
+					slot.text = splitLinesRedacted(f.RelPath, data)
+				}
+				slots[i] = slot
+			}
+		}()
+	}
+	for i := range res.Files {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	facts := make([]ir.FileFacts, 0, n)
+	springFacts := make([]spring.Facts, 0, n)
+	cfgFiles := make([]config.FileFacts, 0, 32)
 	var bindings []config.Binding
 	var textLines []index.TextLine
 	var verHits []versionHit
-	for _, f := range res.Files {
-		data, err := os.ReadFile(f.AbsPath)
-		if err != nil {
-			continue
+	for i := range slots {
+		s := &slots[i]
+		if s.ver != nil {
+			verHits = append(verHits, *s.ver)
 		}
-		if j, b := parseBuildVersions(filepath.Base(f.RelPath), data); j != "" || b != "" {
-			verHits = append(verHits, versionHit{
-				depth: strings.Count(f.RelPath, "/"),
-				java:  j,
-				boot:  b,
-			})
+		if s.facts != nil {
+			facts = append(facts, *s.facts)
 		}
-		if f.IsJava {
-			ff, err := ext.Extract(f.RelPath, data)
-			if err != nil {
-				continue
-			}
-			facts = append(facts, ff)
-			springFacts = append(springFacts, springExt.Extract(f.RelPath, data))
-			bindings = append(bindings, bindExt.ExtractBindings(f.RelPath, data)...)
-			continue
+		if s.spring != nil {
+			springFacts = append(springFacts, *s.spring)
 		}
-		if cfg, err := config.ParseIfConfig(f.RelPath, data); err == nil && cfg != nil {
-			cfgFiles = append(cfgFiles, *cfg)
+		if s.cfg != nil {
+			cfgFiles = append(cfgFiles, *s.cfg)
 		}
-		textLines = append(textLines, splitLinesRedacted(f.RelPath, data)...)
+		if len(s.bindings) > 0 {
+			bindings = append(bindings, s.bindings...)
+		}
+		if len(s.text) > 0 {
+			textLines = append(textLines, s.text...)
+		}
 	}
 
 	javaVer, bootVer := pickVersions(verHits)
-	return &Engine{
+	eng := &Engine{
 		root:    root,
 		stats:   res.Stats,
 		gen:     1,
 		facts:   facts,
-		syms:    index.Build(facts),
-		text:    index.BuildText(textLines),
 		spring:  spring.Build(springFacts),
 		cfg:     config.Build(cfgFiles, bindings),
 		javaVer: javaVer,
 		bootVer: bootVer,
-	}, nil
+	}
+	if !opts.BriefOnly {
+		eng.syms = index.Build(facts)
+		eng.text = index.BuildText(textLines)
+	}
+	return eng, nil
+}
+
+func isBuildFileName(base string) bool {
+	switch base {
+	case "pom.xml", "build.gradle", "build.gradle.kts":
+		return true
+	default:
+		return false
+	}
 }
 
 func splitLinesRedacted(path string, data []byte) []index.TextLine {

@@ -8,7 +8,8 @@ import (
 )
 
 // Brief is the compact workspace orientation card.
-// Packages are limited to entrypoint roots + one child segment (use map for the full tree).
+// Packages are entrypoint roots (exact counts) plus depth-1 children with subtree type counts
+// (use map for the full tree).
 func (e *Engine) Brief() ir.BriefReply {
 	mainTypes := map[string]int{}
 	mainFiles := 0
@@ -114,30 +115,35 @@ func selectBriefPackages(pkgTypes map[string]int, roots []string, scope string) 
 	if len(roots) == 0 || len(pkgTypes) == 0 {
 		return nil
 	}
-	keep := map[string]bool{}
+	counts := map[string]int{}
 	for _, root := range roots {
-		if _, ok := pkgTypes[root]; ok {
-			keep[root] = true
+		if n, ok := pkgTypes[root]; ok {
+			counts[root] = n // exact root package only
 		}
 		prefix := root + "."
-		for p := range pkgTypes {
+		for p, n := range pkgTypes {
 			if !strings.HasPrefix(p, prefix) {
 				continue
 			}
 			rest := p[len(prefix):]
-			if rest != "" && !strings.Contains(rest, ".") {
-				keep[p] = true
+			if rest == "" {
+				continue
 			}
+			seg := rest
+			if i := strings.IndexByte(rest, '.'); i >= 0 {
+				seg = rest[:i]
+			}
+			counts[root+"."+seg] += n // subtree rollup under depth-1
 		}
 	}
-	names := make([]string, 0, len(keep))
-	for p := range keep {
+	names := make([]string, 0, len(counts))
+	for p := range counts {
 		names = append(names, p)
 	}
 	sort.Strings(names)
 	out := make([]ir.BriefPackage, 0, len(names))
 	for _, p := range names {
-		out = append(out, ir.BriefPackage{Name: p, Scope: scope, Types: pkgTypes[p]})
+		out = append(out, ir.BriefPackage{Name: p, Scope: scope, Types: counts[p]})
 	}
 	return out
 }

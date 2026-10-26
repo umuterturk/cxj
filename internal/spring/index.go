@@ -104,7 +104,7 @@ func (idx *Index) BriefIngress() []ir.BriefIngress {
 	return out
 }
 
-// OutboundHTTP is short client/system names.
+// OutboundHTTP is peer/system names (Feign name/value or enclosing client type), not stack types.
 func (idx *Index) OutboundHTTP() []string {
 	if idx == nil {
 		return nil

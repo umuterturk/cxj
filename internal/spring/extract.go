@@ -171,6 +171,8 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 				})
 			case "FeignClient":
 				out.HTTPClients = append(out.HTTPClients, feignClientName(a, name))
+			case "HttpExchange":
+				out.HTTPClients = append(out.HTTPClients, name)
 			case "ControllerAdvice", "RestControllerAdvice":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
 					Kind: "advice", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()),
@@ -317,14 +319,29 @@ func walkMember(n *tree_sitter.Node, src []byte, path string, class *classInfo, 
 						File: path, Line: lineAt(src, p.StartByte()),
 					})
 					if isHTTPClientType(typ) {
-						out.HTTPClients = append(out.HTTPClients, simplifyType(typ))
+						if name := httpClientSystemName(qual, class.name); name != "" {
+							out.HTTPClients = append(out.HTTPClients, name)
+						}
 					}
 				}
 			}
 		}
 	case "field_declaration":
 		if typ := fieldType(n, src); isHTTPClientType(typ) {
-			out.HTTPClients = append(out.HTTPClients, simplifyType(typ))
+			qual := ""
+			for _, a := range annotationsOf(n, src) {
+				if a.Name == "Qualifier" {
+					qual = firstStringArg(a)
+					break
+				}
+			}
+			enclosing := ""
+			if class != nil {
+				enclosing = class.name
+			}
+			if name := httpClientSystemName(qual, enclosing); name != "" {
+				out.HTTPClients = append(out.HTTPClients, name)
+			}
 		}
 	case "class_declaration", "interface_declaration":
 		// nested types ignored for MVP
@@ -597,11 +614,23 @@ func isHTTPClientType(typ string) bool {
 	return false
 }
 
+// httpClientSystemName prefers @Qualifier, else the enclosing simple class name as-is.
+// Stack types (RestClient/WebClient/RestTemplate) are never returned.
+func httpClientSystemName(qualifier, enclosingType string) string {
+	if qualifier != "" {
+		return qualifier
+	}
+	if enclosingType == "" || isHTTPClientType(enclosingType) {
+		return ""
+	}
+	return enclosingType
+}
+
 func feignClientName(a annotation, typeName string) string {
 	if n := namedStringArg(a, "name", "value"); n != "" {
 		return n
 	}
-	return strings.TrimSuffix(typeName, "Client")
+	return typeName
 }
 
 func namedStringArg(a annotation, keys ...string) string {

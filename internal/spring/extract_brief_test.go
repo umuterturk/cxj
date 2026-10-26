@@ -85,7 +85,44 @@ class Gateway {
 `)
 	idx := Build([]Facts{f})
 	got := idx.OutboundHTTP()
-	want := []string{"RestTemplate", "WebClient", "payments"}
+	want := []string{"Gateway", "payments"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("out_http=%v want %v", got, want)
+	}
+}
+
+func TestExtract_restClientEnclosingAndQualifier(t *testing.T) {
+	f := extractFile(t, `
+package com.example.app;
+class ZipRestAdapter {
+  private RestClient restClient;
+}
+class Named {
+  Named(@Qualifier("kyc") RestClient client) {}
+}
+`)
+	idx := Build([]Facts{f})
+	got := idx.OutboundHTTP()
+	want := []string{"ZipRestAdapter", "kyc"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("out_http=%v want %v", got, want)
+	}
+}
+
+func TestExtract_httpExchange(t *testing.T) {
+	f := extractFile(t, `
+package com.example.app;
+@HttpExchange(contentType = "application/json")
+interface ZipHttpClient {
+  @PostExchange("/psp/v5/checkouts/")
+  Object create();
+}
+@HttpExchange
+interface KycHttpClient {}
+`)
+	idx := Build([]Facts{f})
+	got := idx.OutboundHTTP()
+	want := []string{"KycHttpClient", "ZipHttpClient"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("out_http=%v want %v", got, want)
 	}

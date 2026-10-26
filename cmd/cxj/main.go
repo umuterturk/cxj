@@ -297,6 +297,10 @@ func (c *common) mode() cli.Mode {
 }
 
 func openEngine(c *common) (*engine.Engine, error) {
+	return openEngineWith(c, engine.Options{})
+}
+
+func openEngineWith(c *common, opts engine.Options) (*engine.Engine, error) {
 	root := strings.TrimSpace(*c.root)
 	if root == "" {
 		wd, err := os.Getwd()
@@ -308,7 +312,8 @@ func openEngine(c *common) (*engine.Engine, error) {
 	if err := scan.ValidateRoot(root); err != nil {
 		return nil, err
 	}
-	return engine.Open(root, engine.Options{Excludes: c.excludes})
+	opts.Excludes = c.excludes
+	return engine.Open(root, opts)
 }
 
 func failOpen(err error) int {
@@ -326,7 +331,7 @@ func runBrief(args []string) int {
 	if *c.example {
 		return printExamples(c, "brief")
 	}
-	eng, err := openEngine(c)
+	eng, err := openEngineWith(c, engine.Options{BriefOnly: true})
 	if err != nil {
 		return failOpen(err)
 	}

@@ -16,7 +16,7 @@ func (e *Engine) Examples(cmd string) []Example {
 	s := e.sample()
 	switch cmd {
 	case "brief":
-		out := []Example{{Cmd: "cxj brief", Why: "kind, versions, main size, packages, ingress, outbound"}}
+		out := []Example{{Cmd: "cxj brief", Why: "kind, versions, main size, depth-1 pkgs, ingress, outbound peers"}}
 		if s.typ != "" {
 			out = append(out, Example{Cmd: "cxj trail " + quote(s.typ), Why: "one hop around a real type"})
 		}
