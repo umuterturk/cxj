@@ -30,6 +30,7 @@ type Stats struct {
 	SkippedOversize  int
 	SkippedInvalid   int
 	SkippedExcluded  int
+	SkippedScope     int
 }
 
 // Result is the outcome of Scan.
@@ -42,6 +43,33 @@ type Result struct {
 type Options struct {
 	Excludes []string // --exclude patterns
 	MaxBytes int64
+	Scope    Scope // which source tree to include (default ScopeAll)
+}
+
+// Scope selects which source tree the scanner keeps. The zero value, ScopeAll,
+// preserves the historical "scan everything" behavior.
+type Scope int
+
+const (
+	ScopeAll  Scope = iota // main + test (default)
+	ScopeMain              // main sources only
+	ScopeTest              // test sources only
+)
+
+// keep reports whether a relative path is in scope.
+func (s Scope) keep(rel string) bool {
+	switch s {
+	case ScopeMain:
+		return !isTestPath(rel)
+	case ScopeTest:
+		return isTestPath(rel)
+	default:
+		return true
+	}
+}
+
+func isTestPath(p string) bool {
+	return strings.Contains(p, "/src/test/") || strings.HasPrefix(p, "src/test/")
 }
 
 // ValidateRoot ensures root exists and is a directory.
@@ -125,6 +153,10 @@ func Scan(root string, opts Options) (Result, error) {
 		}
 		if matcher.Match(rel) {
 			out.Stats.SkippedExcluded++
+			return nil
+		}
+		if !opts.Scope.keep(rel) {
+			out.Stats.SkippedScope++
 			return nil
 		}
 		if info.Size() > maxBytes {

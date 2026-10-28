@@ -37,3 +37,5 @@ cxj ask          # optional; prompts to download Needle 3 if missing
 cxj COMMAND --example   # 2-3 workspace examples
 cxj install | install -g | version | update
 ```
+
+Navigational commands (`show`/`outline`/`trail`/`callers`/`callees`/`references`/`endpoints`/`beans`/`config`/`keys`) index **main sources only** by default — skipping `src/test` cuts CPU ~3-5x on large repos. Pass `--scope all` (or `--scope test`) to change this; on a miss the CLI hints you to retry with `--scope all`.

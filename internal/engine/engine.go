@@ -25,6 +25,9 @@ type Options struct {
 	// BriefOnly skips symbol/text/binding indexes and spring-extracts only main sources.
 	// Safe for Brief(); other commands need a full Open.
 	BriefOnly bool
+	// Scope selects which source tree to index. Zero value (ScopeAll) matches
+	// historical behavior. Main-only is the default for navigational commands.
+	Scope scan.Scope
 }
 
 // Engine is an immutable in-RAM snapshot of the workspace.
@@ -52,7 +55,7 @@ type fileSlot struct {
 
 // Open scans root and builds lexical, Spring, and config indexes.
 func Open(root string, opts Options) (*Engine, error) {
-	res, err := scan.Scan(root, scan.Options{Excludes: opts.Excludes})
+	res, err := scan.Scan(root, scan.Options{Excludes: opts.Excludes, Scope: opts.Scope})
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +352,10 @@ func (e *Engine) Config(key, profile string) any {
 
 // Root returns the workspace root used for this snapshot.
 func (e *Engine) Root() string { return e.root }
+
+// ScopeFilteredTests reports whether the Open dropped files due to a non-all
+// scope. Used to hint the user toward --scope all on a miss.
+func (e *Engine) ScopeFilteredTests() bool { return e.stats.SkippedScope > 0 }
 
 // Callees lists outbound call sites from symbol.
 func (e *Engine) Callees(symbol string) ir.RefReply {

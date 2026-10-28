@@ -97,6 +97,12 @@ func usage() {
   cxj version [--json]
   cxj update [--check] [--json]
   cxj COMMAND --example     # 2-3 workspace examples
+
+notes:
+  --scope all|main|test   source scope. Navigational commands (show/outline/trail/
+                          callers/callees/references/endpoints/beans/config/keys) default
+                          to main (skips src/test, ~3-5x less CPU); find/map/brief include
+                          everything. On a miss, retry with --scope all.
 `)
 }
 
@@ -259,6 +265,7 @@ type common struct {
 	compact  *bool
 	verbose  *bool
 	example  *bool
+	scope    *string
 	excludes multiFlag
 }
 
@@ -269,6 +276,7 @@ func addCommon(fs *flag.FlagSet) *common {
 	c.compact = fs.Bool("compact", false, "strip JSON to path,line,symbol")
 	c.verbose = fs.Bool("verbose", false, "extra columns (text) or full ask data")
 	c.example = fs.Bool("example", false, "print workspace examples and exit")
+	c.scope = fs.String("scope", "", "source scope: all|main|test (default: per command)")
 	fs.Var(&c.excludes, "exclude", "repeatable path/glob exclusion")
 	return c
 }
@@ -300,6 +308,11 @@ func openEngine(c *common) (*engine.Engine, error) {
 	return openEngineWith(c, engine.Options{})
 }
 
+// openScoped opens with a command-specific default scope, overridable by --scope.
+func openScoped(c *common, def scan.Scope) (*engine.Engine, error) {
+	return openEngineWith(c, engine.Options{Scope: def})
+}
+
 func openEngineWith(c *common, opts engine.Options) (*engine.Engine, error) {
 	root := strings.TrimSpace(*c.root)
 	if root == "" {
@@ -312,8 +325,38 @@ func openEngineWith(c *common, opts engine.Options) (*engine.Engine, error) {
 	if err := scan.ValidateRoot(root); err != nil {
 		return nil, err
 	}
+	scope, err := resolveScope(*c.scope, opts.Scope)
+	if err != nil {
+		return nil, err
+	}
+	opts.Scope = scope
 	opts.Excludes = c.excludes
 	return engine.Open(root, opts)
+}
+
+// resolveScope maps the --scope flag onto a command default. An empty or "auto"
+// flag keeps the default; any other value overrides it.
+func resolveScope(flagVal string, def scan.Scope) (scan.Scope, error) {
+	switch strings.ToLower(strings.TrimSpace(flagVal)) {
+	case "", "auto":
+		return def, nil
+	case "all":
+		return scan.ScopeAll, nil
+	case "main":
+		return scan.ScopeMain, nil
+	case "test":
+		return scan.ScopeTest, nil
+	default:
+		return def, fmt.Errorf("invalid --scope %q (want all|main|test)", flagVal)
+	}
+}
+
+// scopeHint nudges the user toward --scope all after a miss that a non-all
+// default scope could have caused. Written to stderr so it never pollutes JSON.
+func scopeHint(eng *engine.Engine) {
+	if eng != nil && eng.ScopeFilteredTests() {
+		fmt.Fprintln(os.Stderr, "note: indexed main sources only; retry with --scope all")
+	}
 }
 
 func failOpen(err error) int {
@@ -357,11 +400,15 @@ func runTrail(args []string) int {
 		fmt.Fprintln(os.Stderr, "symbol required")
 		return 2
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
-	return cli.NewPrinter().Trail(eng.Trail(strings.Join(positional, " ")), c.mode())
+	trailReply := eng.Trail(strings.Join(positional, " "))
+	if trailReply.Path == "" {
+		scopeHint(eng)
+	}
+	return cli.NewPrinter().Trail(trailReply, c.mode())
 }
 
 func runCallees(args []string) int {
@@ -383,11 +430,15 @@ func runCallees(args []string) int {
 		fmt.Fprintln(os.Stderr, "symbol required")
 		return 2
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
-	return cli.NewPrinter().References(eng.Callees(strings.Join(positional, " ")), c.mode())
+	refReply := eng.Callees(strings.Join(positional, " "))
+	if len(refReply.Results) == 0 {
+		scopeHint(eng)
+	}
+	return cli.NewPrinter().References(refReply, c.mode())
 }
 
 func runKeys(args []string) int {
@@ -400,7 +451,7 @@ func runKeys(args []string) int {
 	if *c.example {
 		return printExamples(c, "keys")
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
@@ -454,11 +505,15 @@ func runShow(args []string) int {
 		fmt.Fprintln(os.Stderr, "symbol required")
 		return 2
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
-	return cli.NewPrinter().Show(eng.Show(strings.Join(positional, " "), *maxLines), c.mode())
+	showReply := eng.Show(strings.Join(positional, " "), *maxLines)
+	if showReply.Path == "" {
+		scopeHint(eng)
+	}
+	return cli.NewPrinter().Show(showReply, c.mode())
 }
 
 func runOutline(args []string) int {
@@ -480,11 +535,15 @@ func runOutline(args []string) int {
 		fmt.Fprintln(os.Stderr, "path or symbol required")
 		return 2
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
-	return cli.NewPrinter().Outline(eng.Outline(strings.Join(positional, " ")), c.mode())
+	outlineReply := eng.Outline(strings.Join(positional, " "))
+	if outlineReply.Path == "" {
+		scopeHint(eng)
+	}
+	return cli.NewPrinter().Outline(outlineReply, c.mode())
 }
 
 func runMap(args []string) int {
@@ -523,11 +582,15 @@ func runReferences(args []string) int {
 		fmt.Fprintln(os.Stderr, "symbol required")
 		return 2
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
-	return cli.NewPrinter().References(eng.References(strings.Join(positional, " ")), c.mode())
+	refReply := eng.References(strings.Join(positional, " "))
+	if len(refReply.Results) == 0 {
+		scopeHint(eng)
+	}
+	return cli.NewPrinter().References(refReply, c.mode())
 }
 
 func runCallers(args []string) int {
@@ -549,11 +612,15 @@ func runCallers(args []string) int {
 		fmt.Fprintln(os.Stderr, "symbol required")
 		return 2
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
-	return cli.NewPrinter().References(eng.Callers(strings.Join(positional, " ")), c.mode())
+	refReply := eng.Callers(strings.Join(positional, " "))
+	if len(refReply.Results) == 0 {
+		scopeHint(eng)
+	}
+	return cli.NewPrinter().References(refReply, c.mode())
 }
 
 func runEndpoints(args []string) int {
@@ -568,7 +635,7 @@ func runEndpoints(args []string) int {
 	if *c.example {
 		return printExamples(c, "endpoints")
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
@@ -590,7 +657,7 @@ func runBeans(args []string) int {
 		fmt.Fprintln(os.Stderr, "--type is required")
 		return 2
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
@@ -613,7 +680,7 @@ func runConfig(args []string) int {
 		fmt.Fprintln(os.Stderr, "--key is required")
 		return 2
 	}
-	eng, err := openEngine(c)
+	eng, err := openScoped(c, scan.ScopeMain)
 	if err != nil {
 		return failOpen(err)
 	}
