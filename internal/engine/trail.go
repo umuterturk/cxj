@@ -18,48 +18,34 @@ func (e *Engine) Trail(symbol string) ir.TrailReply {
 	if query == "" {
 		query = d.Name
 	}
-	out := ir.TrailReply{
-		Symbol:   d.Qualified,
-		Kind:     string(d.Kind),
-		Path:     d.Path,
-		Line:     d.Span.Line,
-		EndLine:  d.Span.EndLine,
-		Resolved: resolved,
-		HTTP:     []ir.TrailHit{},
-		Injects:  []ir.TrailHit{},
-		Callers:  []ir.TrailHit{},
-		Callees:  []ir.TrailHit{},
-		Supers:   []ir.TrailHit{},
-		Subtypes: []ir.TrailHit{},
-		Tests:    []ir.TrailHit{},
-	}
+	var http, injects, callers, callees, supers, subs, tests trailSection
 	for _, ep := range e.spring.Endpoints("", "") {
 		if symbolMatch(ep.Symbol, query, d.Name) {
-			out.HTTP = appendHit(out.HTTP, ir.TrailHit{
+			http.add(ir.TrailHit{
 				Path: ep.Path, Line: ep.Line, Symbol: ep.Symbol,
 				Detail: ep.HTTPMethod + " " + ep.Route, Certainty: string(ep.Certainty),
 			})
 		}
 	}
 	for _, in := range e.spring.InjectionsFor(query) {
-		out.Injects = appendHit(out.Injects, ir.TrailHit{
+		injects.add(ir.TrailHit{
 			Path: in.File, Line: in.Line, Symbol: in.Type, Certainty: string(ir.CertaintyCandidate),
 		})
 	}
 	for _, r := range e.Callers(query).Results {
-		out.Callers = appendHit(out.Callers, refHit(r))
+		callers.add(refHit(r))
 	}
 	for _, r := range e.Callees(query).Results {
-		out.Callees = appendHit(out.Callees, refHit(r))
+		callees.add(refHit(r))
 	}
-	supers, subs := e.syms.Heritage(query)
-	for _, ed := range supers {
-		out.Supers = appendHit(out.Supers, ir.TrailHit{
+	hs, hsSubs := e.syms.Heritage(query)
+	for _, ed := range hs {
+		supers.add(ir.TrailHit{
 			Path: ed.Path, Line: ed.Span.Line, Symbol: ed.To, Detail: ed.Kind, Certainty: string(ed.Certainty),
 		})
 	}
-	for _, ed := range subs {
-		out.Subtypes = appendHit(out.Subtypes, ir.TrailHit{
+	for _, ed := range hsSubs {
+		subs.add(ir.TrailHit{
 			Path: ed.Path, Line: ed.Span.Line, Symbol: ed.From, Detail: ed.Kind, Certainty: string(ed.Certainty),
 		})
 	}
@@ -67,24 +53,60 @@ func (e *Engine) Trail(symbol string) ir.TrailReply {
 		if td.Qualified == d.Qualified {
 			continue
 		}
-		out.Tests = appendHit(out.Tests, ir.TrailHit{
+		tests.add(ir.TrailHit{
 			Path: td.Path, Line: td.Span.Line, Symbol: td.Qualified,
 		})
 	}
-	return out
+	return ir.TrailReply{
+		Symbol:   d.Qualified,
+		Kind:     string(d.Kind),
+		Path:     d.Path,
+		Line:     d.Span.Line,
+		EndLine:  d.Span.EndLine,
+		Resolved: resolved,
+		Totals: ir.TrailTotals{
+			HTTP: http.total, Injects: injects.total, Callers: callers.total,
+			Callees: callees.total, Supers: supers.total, Subtypes: subs.total,
+			Tests: tests.total,
+		},
+		HTTP:     http.list(),
+		Injects:  injects.list(),
+		Callers:  callers.list(),
+		Callees:  callees.list(),
+		Supers:   supers.list(),
+		Subtypes: subs.list(),
+		Tests:    tests.list(),
+	}
+}
+
+// trailSection collects hits up to the cap while counting everything it saw, so
+// the reply can say how much it truncated (FIX_PLAN A5): a full section and a
+// capped one must not look identical.
+type trailSection struct {
+	hits  []ir.TrailHit
+	total int
+}
+
+func (s *trailSection) add(h ir.TrailHit) {
+	s.total++
+	if len(s.hits) < trailCap {
+		s.hits = append(s.hits, h)
+	}
+}
+
+// list never returns nil: the JSON contract is an array, and `null` sections
+// make every consumer branch.
+func (s *trailSection) list() []ir.TrailHit {
+	if s.hits == nil {
+		return []ir.TrailHit{}
+	}
+	return s.hits
 }
 
 func refHit(r ir.RefResult) ir.TrailHit {
 	return ir.TrailHit{
 		Path: r.Path, Line: r.Line, Symbol: r.Target, Certainty: string(r.Certainty),
 	}
-}
-
-func appendHit(dst []ir.TrailHit, h ir.TrailHit) []ir.TrailHit {
-	if len(dst) >= trailCap {
-		return dst
-	}
-	return append(dst, h)
 }
 
 func symbolMatch(got, qualified, simple string) bool {

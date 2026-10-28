@@ -324,16 +324,20 @@ func formatTrail(reply ir.TrailReply) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s %s:%d\n", reply.Kind, reply.Symbol, reply.Path, reply.Line)
-	write := func(label string, hits []ir.TrailHit) {
+	write := func(label string, hits []ir.TrailHit, total int) {
 		for _, h := range hits {
 			fmt.Fprintf(&b, "%s %s:%d %s %s\n", label, h.Path, h.Line, h.Detail, h.Symbol)
 		}
+		if more := total - len(hits); more > 0 {
+			fmt.Fprintf(&b, "%s … (+%d more)\n", label, more)
+		}
 	}
-	write("http", reply.HTTP)
-	write("injects", reply.Injects)
-	write("callers", reply.Callers)
-	write("callees", reply.Callees)
-	write("tests", reply.Tests)
+	t := reply.Totals
+	write("http", reply.HTTP, t.HTTP)
+	write("injects", reply.Injects, t.Injects)
+	write("callers", reply.Callers, t.Callers)
+	write("callees", reply.Callees, t.Callees)
+	write("tests", reply.Tests, t.Tests)
 	return strings.TrimRight(b.String(), "\n")
 }
 

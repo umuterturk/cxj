@@ -209,21 +209,36 @@ type TrailHit struct {
 	Certainty string `json:"certainty,omitempty"`
 }
 
+// TrailTotals counts each section's hits before the trail cap truncated it.
+// Without it a full section and a capped one render identically, and the reader
+// who sees five callers assumes five is the truth. The keys mirror the section
+// fields so the JSON reads as one story.
+type TrailTotals struct {
+	HTTP     int `json:"http"`
+	Injects  int `json:"injects"`
+	Callers  int `json:"callers"`
+	Callees  int `json:"callees"`
+	Supers   int `json:"supers"`
+	Subtypes int `json:"subtypes"`
+	Tests    int `json:"tests"`
+}
+
 // TrailReply is the cx trail --json payload.
 type TrailReply struct {
-	Symbol   string     `json:"symbol"`
-	Kind     string     `json:"kind"`
-	Path     string     `json:"path"`
-	Line     int        `json:"line"`
-	EndLine  int        `json:"end_line"`
-	Resolved string     `json:"resolved,omitempty"`
-	HTTP     []TrailHit `json:"http"`
-	Injects  []TrailHit `json:"injects"`
-	Callers  []TrailHit `json:"callers"`
-	Callees  []TrailHit `json:"callees"`
-	Supers   []TrailHit `json:"supers"`
-	Subtypes []TrailHit `json:"subtypes"`
-	Tests    []TrailHit `json:"tests"`
+	Symbol   string      `json:"symbol"`
+	Kind     string      `json:"kind"`
+	Path     string      `json:"path"`
+	Line     int         `json:"line"`
+	EndLine  int         `json:"end_line"`
+	Resolved string      `json:"resolved,omitempty"`
+	Totals   TrailTotals `json:"totals"`
+	HTTP     []TrailHit  `json:"http"`
+	Injects  []TrailHit  `json:"injects"`
+	Callers  []TrailHit  `json:"callers"`
+	Callees  []TrailHit  `json:"callees"`
+	Supers   []TrailHit  `json:"supers"`
+	Subtypes []TrailHit  `json:"subtypes"`
+	Tests    []TrailHit  `json:"tests"`
 }
 
 // KeyRow is one config key in cx keys (no values).

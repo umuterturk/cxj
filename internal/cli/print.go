@@ -248,22 +248,34 @@ func (p *Printer) Trail(reply ir.TrailReply, m Mode) int {
 		return 0
 	}
 	fmt.Fprintf(p.Out, "%s %s %s:%d-%d\n", reply.Kind, reply.Symbol, reply.Path, reply.Line, reply.EndLine)
-	writeHits := func(label string, hits []ir.TrailHit) {
+	writeHits := func(label string, hits []ir.TrailHit, total int) {
 		for _, h := range hits {
 			sym := h.Symbol
 			if h.Detail != "" {
 				sym = h.Detail + " " + sym
 			}
-			fmt.Fprintf(p.Out, "%s %s:%d %s\n", label, h.Path, h.Line, strings.TrimSpace(sym))
+			line := fmt.Sprintf("%s %s:%d %s", label, h.Path, h.Line, strings.TrimSpace(sym))
+			// Certainty is the one honesty field every hit already carries;
+			// --verbose makes it visible in text too (FIX_PLAN A5).
+			if m.verboseText() && h.Certainty != "" {
+				line += "  [" + h.Certainty + "]"
+			}
+			fmt.Fprintln(p.Out, line)
+		}
+		// The label rides on the marker because sections share one stream:
+		// two bare "(+K more)" lines in a row would not say which is whose.
+		if more := total - len(hits); more > 0 {
+			fmt.Fprintf(p.Out, "%s … (+%d more)\n", label, more)
 		}
 	}
-	writeHits("http", reply.HTTP)
-	writeHits("injects", reply.Injects)
-	writeHits("callers", reply.Callers)
-	writeHits("callees", reply.Callees)
-	writeHits("supers", reply.Supers)
-	writeHits("subtypes", reply.Subtypes)
-	writeHits("tests", reply.Tests)
+	t := reply.Totals
+	writeHits("http", reply.HTTP, t.HTTP)
+	writeHits("injects", reply.Injects, t.Injects)
+	writeHits("callers", reply.Callers, t.Callers)
+	writeHits("callees", reply.Callees, t.Callees)
+	writeHits("supers", reply.Supers, t.Supers)
+	writeHits("subtypes", reply.Subtypes, t.Subtypes)
+	writeHits("tests", reply.Tests, t.Tests)
 	return 0
 }
 

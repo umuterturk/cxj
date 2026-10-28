@@ -698,8 +698,16 @@ compact JSON (A2); the `(+K more)` cap marker and certainty-in-verbose are still
   `candidate`). Then `callers C.pay` matches typed edges resolving to `C`/subtypes, falling back
   to name candidates (labeled `candidate`) only when the type is unknown. **Exit:**
   `callers …PaymentController.pay` drops 106 → real caller set.
-- **A5 — Honesty in presentation (A-RC3 visibility).** Print `resolved <t> (ambiguous: N)`;
-  emit `… (+K more)` when a `trailCap` section is cut; show certainty in `--verbose`.
+- **A5 — Honesty in presentation (A-RC3 visibility) ✅ (shipped in halves).** The ambiguity
+  half shipped with A2 (`ambiguous N: qualify the query (…)` in text, `ambiguous_total` in
+  JSON); the certainty half ships here in `trail --verbose`, which now appends each hit's
+  certainty the way `references --verbose` has. The third — the trail-cap marker — is the
+  one the audit found missing: `trailCap` truncated silently, so five callers and 106
+  callers printed identically. Every `trail` section now counts what it saw before capping:
+  `TrailReply.Totals` mirrors the sections in JSON, text renders `callers … (+101 more)`
+  (the label rides because sections share one stream), and `ask`'s digest carries the same
+  marker. On `payment-api`: `trail …PaymentController.pay` → `(+2 more)`, at `--scope all`
+  → `(+101 more)` — the 106-caller window admits being a window; A3 still owns shrinking it.
 - **A6 — Substring/camel-hump search over Java (A-RC7) ✅.** `MatchSubstring` tier in
   `matchDef`, ranked below exact/prefix/fuzzy so it can only fill gaps: case-insensitive
   substring on the *simple* name — never the qualified name, which is A-RC2’s lesson applied
@@ -923,9 +931,10 @@ declaration means no coordinate — the same honesty boundary as `deps`).
 
 ## 7. Rollout, effort, non-goals
 **Status (2026-10-28): P0, P1, P2, P4, P5, P7 shipped and gated; Track A's cheap half (A0, A1, A2,
-A4, A6, A7) and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) are shipped.** Everything below is the
-remaining queue. A4's main-first `find` reorder was the battery's first intended divergence; the
-identity baseline moves to the A4 commit, so from here on any diff is a bug again. A6 moved
+A4, A5, A6, A7) and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) are shipped.** Everything below is
+the remaining queue. A4's main-first `find` reorder and A5's trail-cap markers were the battery's
+first intended divergences; the identity baseline moves forward with each such phase, so from here
+on any diff is a bug again. A6 moved
 forward because it is the
 cheapest user-visible accuracy win and touches none of the graph code — it paid off, and A7 came
 with it. P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a
@@ -934,7 +943,7 @@ P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× c
 is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
-P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 → P3 → A3 → docs/bench`.
+P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 ✅ → P3 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
