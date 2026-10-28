@@ -10,12 +10,31 @@ is the product, and every metric that proves it is gated in CI.
 
 ## Install
 
-macOS arm64 release binary (from [Releases](https://github.com/umuterturk/cxj/releases)):
+Homebrew (macOS and Linux):
 
 ```sh
-# unzip cxj-macos-arm64.zip, then:
-./cxj install -g   # /usr/local/bin/cxj + global agent skill
+brew install umuterturk/tap/cxj
+cxj install -g   # /usr/local/bin/cxj + global agent skill
 ```
+
+Go (any platform Go supports — builds from source, needs a C toolchain for tree-sitter):
+
+```sh
+go install github.com/umuterturk/cxj/cmd/cxj@latest
+```
+
+Direct download — release assets for `macos-arm64`, `macos-x86_64`,
+`linux-x86_64`, `linux-arm64` from [Releases](https://github.com/umuterturk/cxj/releases):
+
+```sh
+# unzip the zip for your platform, then:
+./cxj install -g
+```
+
+`cxj update` later upgrades in place: it fetches the newest release asset for
+your platform and swaps the binary. `cxj install -g` writes the agent skill to
+`~/.agents/skills/cxj`, which OpenCode, Claude Code, and other agent harnesses
+discover natively.
 
 ## Build
 
