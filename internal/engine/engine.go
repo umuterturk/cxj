@@ -10,12 +10,12 @@ import (
 	"strings"
 	"sync"
 
-	"example.com/cx/internal/config"
-	"example.com/cx/internal/index"
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/java"
-	"example.com/cx/internal/scan"
-	"example.com/cx/internal/spring"
+	"github.com/umuterturk/cxj/internal/config"
+	"github.com/umuterturk/cxj/internal/index"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/java"
+	"github.com/umuterturk/cxj/internal/scan"
+	"github.com/umuterturk/cxj/internal/spring"
 )
 
 // Options configure engine opening.

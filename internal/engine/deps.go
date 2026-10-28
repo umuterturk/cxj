@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // Dependency ground truth: "which version am I actually on, and where did it come

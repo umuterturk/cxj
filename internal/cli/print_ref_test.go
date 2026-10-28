@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // --- ambiguity surface (A2) --------------------------------------------------

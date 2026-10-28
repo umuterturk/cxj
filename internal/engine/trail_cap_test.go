@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 // TestTrailCountsWhatItTruncates is the A5 contract: a capped section must say

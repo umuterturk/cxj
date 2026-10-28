@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/engine"
+	"github.com/umuterturk/cxj/internal/engine"
 )
 
 // The capability table is a per-command decision about what work to skip, which means

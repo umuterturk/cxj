@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // Index answers Spring HTTP/bean/context queries.

@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/cx/internal/engine"
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/needle"
+	"github.com/umuterturk/cxj/internal/engine"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/needle"
 )
 
 // Call is one Needle tool invocation.

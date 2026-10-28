@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/benchfixture"
+	"github.com/umuterturk/cxj/internal/benchfixture"
 )
 
 func batchFixture(t *testing.T) string {

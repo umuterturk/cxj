@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/benchfixture"
+	"github.com/umuterturk/cxj/internal/benchfixture"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 

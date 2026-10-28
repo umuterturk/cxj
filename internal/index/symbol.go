@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // SymbolIndex holds definitions and candidate edges for lexical search.

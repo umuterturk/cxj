@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 func writeTree(t *testing.T, files map[string]string) string {

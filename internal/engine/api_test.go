@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 // B2 fixtures are built at test time exactly as the plan prescribed: a sources

@@ -3,7 +3,7 @@ package engine
 import (
 	"sort"
 
-	"example.com/cx/internal/config"
+	"github.com/umuterturk/cxj/internal/config"
 )
 
 // Capabilities selects which sub-indexes Open builds. Every command needs a

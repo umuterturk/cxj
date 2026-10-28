@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"example.com/cx/internal/engine"
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/engine"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 // Batch is the amortization answer to the cold-Open tax (FIX_PLAN P4): a stateless

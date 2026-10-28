@@ -12,8 +12,8 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"example.com/cx/internal/exclude"
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/exclude"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 const defaultMaxFileBytes = 1 << 20 // 1 MiB

@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"example.com/cx/internal/engine"
-	"example.com/cx/internal/scan"
-	"example.com/cx/internal/spring"
+	"github.com/umuterturk/cxj/internal/engine"
+	"github.com/umuterturk/cxj/internal/scan"
+	"github.com/umuterturk/cxj/internal/spring"
 )
 
 func TestWriteDefaultScale(t *testing.T) {

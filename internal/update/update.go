@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/cx/internal/version"
+	"github.com/umuterturk/cxj/internal/version"
 )
 
 const (

@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/java"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/java"
 )
 
 // The dependency-API answer (FIX_PLAN §5.2): "what is the real public surface of

@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 // End-to-end shape of the A3 exit: `callers <endpoint>` on a REST method

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/config"
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/config"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 // The P2 claim is that a command can build fewer sub-indexes and still answer the

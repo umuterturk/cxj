@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"example.com/cx/internal/tshelp"
+	"github.com/umuterturk/cxj/internal/tshelp"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tsjava "github.com/tree-sitter/tree-sitter-java/bindings/go"
 )

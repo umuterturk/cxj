@@ -7,7 +7,7 @@ import (
 )
 
 // Version is the release tag (e.g. v0.2.0). Override with
-// -ldflags="-X example.com/cx/internal/version.Version=vX.Y.Z".
+// -ldflags="-X github.com/umuterturk/cxj/internal/version.Version=vX.Y.Z".
 var Version = "dev"
 
 // Line is the compact `cxj version` text.

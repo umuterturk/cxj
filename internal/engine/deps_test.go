@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // B1 fixtures are written into t.TempDir rather than a checked-in testdata tree:

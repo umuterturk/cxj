@@ -3,7 +3,7 @@ package java
 import (
 	"testing"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // Receiver typing (FIX_PLAN A3): every call edge carries the declared simple

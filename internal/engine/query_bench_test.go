@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 // Query-side benchmarks.

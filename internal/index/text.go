@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // TextLine is one indexed UTF-8 text line.

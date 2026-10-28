@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 func TestOpenScopeMainExcludesTestSymbols(t *testing.T) {

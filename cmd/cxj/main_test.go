@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 func TestResolveScope(t *testing.T) {

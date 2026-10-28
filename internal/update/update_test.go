@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"example.com/cx/internal/version"
+	"github.com/umuterturk/cxj/internal/version"
 )
 
 func TestAssetName(t *testing.T) {

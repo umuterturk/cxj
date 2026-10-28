@@ -1,4 +1,4 @@
-module example.com/cx
+module github.com/umuterturk/cxj
 
 go 1.23
 

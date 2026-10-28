@@ -21,7 +21,7 @@ jobs:
       - name: Build
         run: |
           mkdir -p dist/macos-arm64
-          go build -trimpath -ldflags="-s -w -X example.com/cx/internal/version.Version=${GITHUB_REF_NAME}" -o dist/macos-arm64/cxj ./cmd/cxj
+          go build -trimpath -ldflags="-s -w -X github.com/umuterturk/cxj/internal/version.Version=${GITHUB_REF_NAME}" -o dist/macos-arm64/cxj ./cmd/cxj
           chmod +x dist/macos-arm64/cxj
           file dist/macos-arm64/cxj
 

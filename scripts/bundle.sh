@@ -23,7 +23,7 @@ mkdir -p "$out"
 ver="$(git describe --tags --always --dirty 2>/dev/null || true)"
 ldflags="-s -w"
 if [[ -n "$ver" ]]; then
-  ldflags="$ldflags -X example.com/cx/internal/version.Version=$ver"
+  ldflags="$ldflags -X github.com/umuterturk/cxj/internal/version.Version=$ver"
 fi
 echo "building cxj -> $out/cxj ($ver)"
 go build -trimpath -ldflags="$ldflags" -o "$out/cxj" ./cmd/cxj

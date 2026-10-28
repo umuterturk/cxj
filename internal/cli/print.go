@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // Mode selects compact vs full output.

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"example.com/cx/internal/benchfixture"
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/benchfixture"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 // Benchmarks for Track P. They measure the thing statelessness forces us to pay

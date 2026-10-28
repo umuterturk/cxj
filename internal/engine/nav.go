@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // Show prints the source span of a symbol, hard-capped at maxLines.

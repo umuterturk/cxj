@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"testing"
 
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/java"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/java"
 )
 
 // Typed call matching (FIX_PLAN A3). Before, `callers C.go` matched every

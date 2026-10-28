@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"example.com/cx/internal/ask"
-	"example.com/cx/internal/cli"
-	"example.com/cx/internal/engine"
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/needle"
-	"example.com/cx/internal/scan"
-	"example.com/cx/internal/skill"
-	"example.com/cx/internal/update"
-	"example.com/cx/internal/version"
+	"github.com/umuterturk/cxj/internal/ask"
+	"github.com/umuterturk/cxj/internal/cli"
+	"github.com/umuterturk/cxj/internal/engine"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/needle"
+	"github.com/umuterturk/cxj/internal/scan"
+	"github.com/umuterturk/cxj/internal/skill"
+	"github.com/umuterturk/cxj/internal/update"
+	"github.com/umuterturk/cxj/internal/version"
 )
 
 func main() {

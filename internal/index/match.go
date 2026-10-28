@@ -3,7 +3,7 @@ package index
 import (
 	"strings"
 
-	"example.com/cx/internal/ir"
+	"github.com/umuterturk/cxj/internal/ir"
 )
 
 // The definition matcher.

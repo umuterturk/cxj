@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"example.com/cx/internal/benchfixture"
+	"github.com/umuterturk/cxj/internal/benchfixture"
 )
 
 func main() {

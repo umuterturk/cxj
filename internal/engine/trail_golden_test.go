@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/scan"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/scan"
 )
 
 // Engine-level goldens for `trail` (Track A, A0).

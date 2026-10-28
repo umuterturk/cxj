@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/cx/internal/ir"
-	"example.com/cx/internal/java"
+	"github.com/umuterturk/cxj/internal/ir"
+	"github.com/umuterturk/cxj/internal/java"
 )
 
 // Golden fixtures for the navigation contract (Track A, A0).
