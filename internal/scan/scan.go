@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"example.com/cx/internal/exclude"
+	"example.com/cx/internal/ir"
 )
 
 const defaultMaxFileBytes = 1 << 20 // 1 MiB
@@ -68,9 +69,7 @@ func (s Scope) keep(rel string) bool {
 	}
 }
 
-func isTestPath(p string) bool {
-	return strings.Contains(p, "/src/test/") || strings.HasPrefix(p, "src/test/")
-}
+func isTestPath(p string) bool { return ir.IsTestPath(p) }
 
 // ValidateRoot ensures root exists and is a directory.
 func ValidateRoot(root string) error {

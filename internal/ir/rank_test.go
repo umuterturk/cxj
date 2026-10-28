@@ -64,3 +64,49 @@ func TestLexicalLessPrefersTypes(t *testing.T) {
 		t.Error("a raw text line should not outrank a symbol hit")
 	}
 }
+
+// TestLexicalLessSourceTier is the A4 contract: the main tree ranks above the
+// test tree above match kind. A test hit is a real hit — this is ranking, not
+// correctness — but the page a reader sees first should be production code,
+// and before this key a test class at MatchExact sat above the main class the
+// query was really about.
+func TestLexicalLessSourceTier(t *testing.T) {
+	main := SearchResult{Path: "src/main/java/com/x/Pay.java", Symbol: "com.x.Pay", Kind: KindClass, Match: MatchSubstring, Score: 0.2}
+	test := SearchResult{Path: "module/src/test/java/com/x/Pay.java", Symbol: "com.x.Pay", Kind: KindClass, Match: MatchExact, Score: 1}
+
+	// Even MatchExact-in-test loses to MatchSubstring-in-main.
+	if !LexicalLess(main, test, false) {
+		t.Error("main should rank above test regardless of match kind")
+	}
+	if LexicalLess(test, main, false) {
+		t.Error("the ordering must not flip on the reverse comparison")
+	}
+	// The wantsType penalty still outranks the source tier: a lowercase member
+	// answering a type query is a wrong-kind answer, worse than a right-kind
+	// answer from the test tree.
+	testClass := SearchResult{Path: "src/test/java/com/x/Handler.java", Symbol: "com.x.Handler", Kind: KindClass, Match: MatchExact, Score: 1}
+	mainField := SearchResult{Path: "src/main/java/com/x/Pay.java", Symbol: "com.x.Pay.handler", Kind: KindField, Match: MatchExact, Score: 1}
+	if !LexicalLess(testClass, mainField, true) {
+		t.Error("the type-before-member penalty should outrank the source tier")
+	}
+	// Same tree: match kind decides, unchanged.
+	main2 := SearchResult{Path: "src/main/java/com/x/other/Pay.java", Symbol: "com.x.other.Pay", Kind: KindClass, Match: MatchExact, Score: 1}
+	if !LexicalLess(main2, main, false) {
+		t.Error("inside one tree, match kind must still decide")
+	}
+}
+
+func TestIsTestPath(t *testing.T) {
+	yes := []string{"src/test/java/Foo.java", "module/src/test/java/Foo.java", "src/test/resources/app.yml"}
+	no := []string{"src/main/java/Foo.java", "src/testme/java/Foo.java", "a/src/test.java", "Foo.java"}
+	for _, p := range yes {
+		if !IsTestPath(p) {
+			t.Errorf("IsTestPath(%q)=false, want true", p)
+		}
+	}
+	for _, p := range no {
+		if IsTestPath(p) {
+			t.Errorf("IsTestPath(%q)=true, want false", p)
+		}
+	}
+}

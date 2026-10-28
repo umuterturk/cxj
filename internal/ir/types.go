@@ -95,6 +95,14 @@ func WantsTypeName(q string) bool {
 	return unicode.IsUpper(r)
 }
 
+// IsTestPath reports whether a workspace-relative path sits in the test source
+// tree. This is the one law of that judgment, shared by the scanner's scope
+// filter, brief's main-only sections, and find's source tier, because a rule
+// spelled three ways eventually disagrees with itself about what a test is.
+func IsTestPath(p string) bool {
+	return strings.Contains(p, "/src/test/") || strings.HasPrefix(p, "src/test/")
+}
+
 // LexicalLess orders two search hits best-first, and is the single ranking used by
 // both the symbol index and the merged `find` output. It has to be one function:
 // the index sorted symbol hits one way and the merge re-sorted the combined list
@@ -105,6 +113,16 @@ func WantsTypeName(q string) bool {
 func LexicalLess(a, b SearchResult, wantsType bool) bool {
 	if pa, pb := lexicalPenalty(a, wantsType), lexicalPenalty(b, wantsType); pa != pb {
 		return pa < pb
+	}
+	// The source tier (FIX_PLAN A4): main before test, above match kind.
+	// A test hit is a real hit — this is ranking, not correctness — but
+	// `find X --scope all` used to interleave the two trees by score, so a
+	// test class could lead a page while the production class sat unseen
+	// below it. It sits below the wantsType penalty on purpose: a
+	// lowercase member answering a type query is a wrong-kind answer, which
+	// is a worse answer than a right-kind one from the wrong tree.
+	if ta, tb := sourceTier(a.Path), sourceTier(b.Path); ta != tb {
+		return ta < tb
 	}
 	if ra, rb := RankMatch(a.Match), RankMatch(b.Match); ra != rb {
 		return ra < rb
@@ -125,6 +143,14 @@ func LexicalLess(a, b SearchResult, wantsType bool) bool {
 		return a.Line < b.Line
 	}
 	return a.Symbol < b.Symbol
+}
+
+// sourceTier is the A4 key: 0 for the main tree, 1 for the test tree.
+func sourceTier(path string) int {
+	if IsTestPath(path) {
+		return 1
+	}
+	return 0
 }
 
 // lexicalPenalty sinks members that only matched because matching ignores case.

@@ -163,9 +163,7 @@ func packageSegments(pkg string) int {
 	return strings.Count(pkg, ".") + 1
 }
 
-func isTestPath(p string) bool {
-	return strings.Contains(p, "/src/test/") || strings.HasPrefix(p, "src/test/")
-}
+func isTestPath(p string) bool { return ir.IsTestPath(p) }
 
 func isTestName(name string) bool {
 	return strings.HasSuffix(name, "Test") || strings.HasSuffix(name, "Tests")

@@ -677,10 +677,21 @@ compact JSON (A2); the `(+K more)` cap marker and certainty-in-verbose are still
   `callees …PayHandler.handle`: 292 results across 20 files → 31 results in 1 file. `handle`
   really is owned by 20 methods on `payment-api`, and the flag says so (names capped at 5, the
   count always true). `callers` untouched by design.
-- **A4 — `find` source tier (A-RC5).** `mergeLexical` orders `main` before `test` (reuse
-  `engine.isTestPath`), above match-kind, stable otherwise. Framed as ranking, not correctness.
-  After A7 the shared comparator owns this ordering, so A4 is one more key in `ir.LexicalLess`
-  rather than a new sort site.
+- **A4 — `find` source tier (A-RC5) ✅.** One more key in `ir.LexicalLess`: main before test,
+  above match-kind, stable otherwise — framed as ranking, not correctness. It sits *below*
+  A7's wantsType penalty on purpose (a wrong-kind answer is worse than a right-kind answer
+  from the wrong tree) and *above* match rank, which is what "main before test, above
+  match-kind" means when it bites: on `payment-api`, `find Controller` now leads with
+  `MerchantPaymentController` (main, score 0.244) over `PaymentControllerValidationTest`
+  (test, 0.256) — lower score, higher rank. `find pay` moves all eight main hits above all
+  four test hits. The one honest cost lives at the tail of deep pages: at
+  `--scope all --limit 50`, two `demo.html` text rows (main, MatchText) rise above the last
+  two test-class rows, so the classes row reads 48/50 — the source tier is one key, not a
+  symbol-over-text rule, and page 1 is untouched (still 5/5 classes).
+  `ir.IsTestPath` becomes the single law of the judgment: `engine.isTestPath` and
+  `scan.isTestPath` both delegate to it (the two spellings had quietly agreed only by luck).
+  This is the battery's first **intended** divergence: 3/31 `find` rows reorder, all pure
+  main-first moves, everything else byte-identical.
 - **A3 — Receiver typing (A-RC4, A-RC1 caller side; largest, land last).** Record declared
   types for fields/params (+ simple locals) in extraction; build a `varName→Type` scope map;
   when a call receiver is a known name, set edge `To` to the receiver *type* (still
@@ -714,8 +725,8 @@ compact JSON (A2); the `(+K more)` cap marker and certainty-in-verbose are still
 | `callees …PayHandler.handle` | 292 | ≈ method-body calls | **31** ✅ |
 | distinct files in that callees | 23 | 1 | **1** ✅ |
 | `trail …PaymentController.pay` http rows | 5 (all wrong) | 1 | **1, its own** ✅ |
-| `find Controller` result count | 0 | main controller set, main-first | **5 controllers, main-first** ✅ |
-| `find Handler` classes on first page | 0 | most of the first page | **5/5**, and 50/50 at `--scope all --limit 50` ✅ |
+| `find Controller` result count | 0 | main controller set, main-first | **5 controllers, all main** ✅ (A4 pushed the validation test off the page) |
+| `find Handler` classes on first page | 0 | most of the first page | **5/5**, and 48/50 at `--scope all --limit 50` ✅ (A4: two main-tree `demo.html` text rows now rank above the last two test classes — see A4) |
 | `callers …PaymentController.pay` at `--scope all` | 106 | single digit | 106 — A3 |
 
 Every row is checked at `--scope all` as well as at the main-scope default: a narrowed default
@@ -912,8 +923,9 @@ declaration means no coordinate — the same honesty boundary as `deps`).
 
 ## 7. Rollout, effort, non-goals
 **Status (2026-10-28): P0, P1, P2, P4, P5, P7 shipped and gated; Track A's cheap half (A0, A1, A2,
-A6, A7) and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) are shipped.** Everything below is the
-remaining queue. A6 moved
+A4, A6, A7) and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) are shipped.** Everything below is the
+remaining queue. A4's main-first `find` reorder was the battery's first intended divergence; the
+identity baseline moves to the A4 commit, so from here on any diff is a bug again. A6 moved
 forward because it is the
 cheapest user-visible accuracy win and touches none of the graph code — it paid off, and A7 came
 with it. P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a
@@ -922,7 +934,7 @@ P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× c
 is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
-P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 → A5 → P3 → A3 → docs/bench`.
+P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 → P3 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
