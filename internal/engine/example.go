@@ -329,6 +329,12 @@ func StaticExamples(cmd string) []Example {
 			{Cmd: "cxj deps jackson", Why: "one library's real version, declared or transitive"},
 			{Cmd: "cxj deps --tier managed", Why: "versions a BOM or catalog controls, not your file"},
 		}
+	case "api":
+		return []Example{
+			{Cmd: "cxj api jackson-databind ObjectMapper.readValue", Why: "the real overloads at the version you resolve, plus your call sites"},
+			{Cmd: "cxj api spring-web RestClient", Why: "a type's public surface from your own cache"},
+			{Cmd: "cxj api spring-kafka --sources-only", Why: "headline types with zero workspace scanning"},
+		}
 	case "batch":
 		return []Example{
 			{Cmd: `printf '{"cmd":"find","arg":"Order"}\n{"cmd":"trail","arg":"com.acme.OrderService.save"}\n' | cxj batch`, Why: "many lookups, one Open"},

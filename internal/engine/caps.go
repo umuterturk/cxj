@@ -126,6 +126,11 @@ var commandCaps = map[string]Capabilities{
 	// CapsFor of every command in the batch — the row exists so CapsFor("batch")
 	// is never a CapsAll accident for anyone who consults it.
 	"batch": 0,
+	// api is two halves: the artifact half opens no snapshot at all (deps
+	// resolution + two zip reads), and the usage half is exactly a references
+	// query — definitions and the symbol index, nothing else. --sources-only
+	// skips the open entirely, so the row is the ceiling, not the floor.
+	"api": CapsSymbols,
 }
 
 // fileWork is the per-file slice of that plan. Resolving to zero is the cheap

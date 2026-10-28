@@ -59,6 +59,8 @@ func main() {
 		os.Exit(runDeps(os.Args[2:]))
 	case "batch":
 		os.Exit(runBatch(os.Args[2:]))
+	case "api":
+		os.Exit(runApi(os.Args[2:]))
 	case "ask":
 		os.Exit(runAsk(os.Args[2:]))
 	case "install":
@@ -97,6 +99,7 @@ func usage() {
   cxj status [--root PATH] [--json]
   cxj deps [FILTER] [--root PATH] [--tier declared|resolved|managed|cached|unknown] [--limit 40] [--m2 DIR] [--gradle DIR] [--cache DIR] [--json]
   cxj batch [--root PATH] [--scope all|main|test]   # JSONL queries on stdin, ONE Open for all
+  cxj api DEP [Type|member] [--root PATH] [--sources-only|--from-repo-only] [--limit 40] [--members 80] [--json]
   cxj ask QUESTION [--root PATH] [--download] [--show-command] [--verbose] [--json]
   cxj install               # project: .agents/skills + .claude/skills symlink
   cxj install -g            # global: ~/.agents/skills + symlink; /usr/local/bin/cxj
@@ -861,6 +864,112 @@ func runDeps(args []string) int {
 		return 1
 	}
 	return cli.NewPrinter().Deps(reply, cli.Mode{JSON: *asJSON})
+}
+
+// runApi answers "what is this dependency's real API at my version, and where do
+// I already use it". Half the answer comes off the build files and the artifact
+// caches (like deps, no snapshot); the other half is workspace references, and
+// only that half opens an engine — which is what --sources-only skips, because
+// a jar question must not pay for a repository scan.
+func runApi(args []string) int {
+	fs := flag.NewFlagSet("api", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	root := fs.String("root", "", "workspace root (default: current directory)")
+	asJSON := fs.Bool("json", false, "emit JSON")
+	limit := fs.Int("limit", engine.DefaultApiLimit, "max types in the reply (1-500)")
+	members := fs.Int("members", engine.DefaultApiMembers, "max rendered members per type")
+	scopeFlag := fs.String("scope", "", "source scope for call sites: all|main|test (default: main)")
+	sourcesOnly := fs.Bool("sources-only", false, "read only the artifact; skip the workspace scan")
+	fromRepoOnly := fs.Bool("from-repo-only", false, "skip the artifact; show only this workspace's usage")
+	m2 := fs.String("m2", "", "local Maven repository (default ~/.m2/repository)")
+	gradle := fs.String("gradle", "", "local Gradle cache (default ~/.gradle/caches/modules-2)")
+	cache := fs.String("cache", "", "base directory holding repository/ and modules-2/ (overridden by --m2/--gradle)")
+	example := fs.Bool("example", false, "print examples and exit")
+	fs.Bool("compact", false, "accepted for consistency; api output is already compact")
+	fs.Bool("verbose", false, "accepted for consistency; use --json for everything")
+	fs.Var(new(multiFlag), "exclude", "accepted for consistency; unused")
+	flagArgs, positional, err := cli.SplitArgs(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 2
+	}
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	if *example {
+		return printStaticExamples("api")
+	}
+	if len(positional) == 0 {
+		fmt.Fprintln(os.Stderr, "dependency required (cxj api <dep> [Type|member])")
+		return 2
+	}
+	if len(positional) > 2 {
+		fmt.Fprintln(os.Stderr, "too many arguments; the symbol is one dotted name")
+		return 2
+	}
+	if *sourcesOnly && *fromRepoOnly {
+		fmt.Fprintln(os.Stderr, "--sources-only and --from-repo-only cancel each other")
+		return 2
+	}
+	r := strings.TrimSpace(*root)
+	if r == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			return 1
+		}
+		r = wd
+	}
+	if err := scan.ValidateRoot(r); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 2
+	}
+	m2Dir, gradleCache := strings.TrimSpace(*m2), strings.TrimSpace(*gradle)
+	if base := strings.TrimSpace(*cache); base != "" {
+		if m2Dir == "" {
+			m2Dir = filepath.Join(base, "repository")
+		}
+		if gradleCache == "" {
+			gradleCache = filepath.Join(base, "modules-2")
+		}
+	}
+	symbol := ""
+	if len(positional) == 2 {
+		symbol = strings.TrimSpace(positional[1])
+	}
+
+	var eng *engine.Engine
+	if !*sourcesOnly {
+		scope, err := resolveScope(*scopeFlag, scan.ScopeMain)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			return 2
+		}
+		eng, err = engine.Open(r, engine.Options{Caps: engine.CapsFor("api"), Scope: scope})
+		if err != nil {
+			return failOpen(err)
+		}
+	}
+	reply, err := engine.Api(engine.ApiOptions{
+		Root:        r,
+		Dep:         positional[0],
+		Symbol:      symbol,
+		Limit:       *limit,
+		MemberLimit: *members,
+		SkipSurface: *fromRepoOnly,
+		Eng:         eng,
+		M2Dir:       m2Dir,
+		GradleCache: gradleCache,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 1
+	}
+	code := cli.NewPrinter().Api(reply, cli.Mode{JSON: *asJSON})
+	if eng != nil && symbol != "" && reply.UsageTotal == 0 {
+		scopeHint(eng)
+	}
+	return code
 }
 
 type multiFlag []string

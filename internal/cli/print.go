@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"example.com/cx/internal/ir"
@@ -333,6 +334,85 @@ func (p *Printer) Deps(reply ir.DepsReply, m Mode) int {
 		fmt.Fprintf(p.Out, "+%d more (--limit %d, or a filter)\n", more, reply.Count)
 	}
 	return 0
+}
+
+// Api writes the dependency-surface answer: the resolved coordinate with its
+// provenance, the public types and signatures read from the artifact, and the
+// workspace's own call sites. The surface label is load-bearing — a signature
+// from a sources jar and one from a class file are different strengths of
+// evidence, and the reader should know which row is which.
+func (p *Printer) Api(reply ir.ApiReply, m Mode) int {
+	if m.JSON {
+		return p.JSON(reply)
+	}
+	if len(reply.Ambiguous) > 0 {
+		if reply.Note != "" {
+			fmt.Fprintln(p.Out, reply.Note)
+		}
+		for _, c := range reply.Ambiguous {
+			fmt.Fprintln(p.Out, "  "+c)
+		}
+		p.apiUsage(reply)
+		return 0
+	}
+	if reply.Version != "" {
+		line := reply.Group + ":" + reply.Artifact + " " + reply.Version
+		if reply.Tier != "" {
+			line += "  " + reply.Tier
+		}
+		if reply.Source != "" {
+			line += "  " + reply.Source
+		}
+		fmt.Fprintln(p.Out, line)
+	}
+	switch reply.Surface {
+	case ir.ApiSources:
+		fmt.Fprintf(p.Out, "public surface from sources jar: %s\n", filepath.Base(reply.Jar))
+	case ir.ApiClasses:
+		fmt.Fprintf(p.Out, "public surface from class jar (no parameter names): %s\n", filepath.Base(reply.Jar))
+	}
+	for _, t := range reply.Types {
+		if len(t.Members) == 0 && t.Kind == "" {
+			fmt.Fprintln(p.Out, "  "+t.Name) // headline row: a name is the whole answer
+			continue
+		}
+		head := "  " + t.Kind + " " + t.Name
+		if t.Doc != "" {
+			head += "  # " + t.Doc
+		}
+		fmt.Fprintln(p.Out, head)
+		for _, mem := range t.Members {
+			row := "    " + mem.Signature
+			if mem.Doc != "" {
+				row += "  # " + mem.Doc
+			}
+			fmt.Fprintln(p.Out, row)
+		}
+		if more := t.MembersTotal - len(t.Members); more > 0 {
+			fmt.Fprintf(p.Out, "    +%d more members (--members)\n", more)
+		}
+	}
+	if more := reply.TypesTotal - len(reply.Types); more > 0 {
+		fmt.Fprintf(p.Out, "+%d more types (--limit, or name one: cxj api %s <Type>)\n", more, reply.Query)
+	}
+	if reply.Note != "" {
+		fmt.Fprintln(p.Out, reply.Note)
+	}
+	p.apiUsage(reply)
+	return 0
+}
+
+func (p *Printer) apiUsage(reply ir.ApiReply) {
+	if len(reply.Usage) == 0 {
+		return
+	}
+	fmt.Fprintf(p.Out, "your call sites (%d)\n", reply.UsageTotal)
+	for _, u := range reply.Usage {
+		fmt.Fprintf(p.Out, "  %s:%d  %s %s  [%s]\n", u.Path, u.Line, u.Kind, u.Target, u.Certainty)
+	}
+	if more := reply.UsageTotal - len(reply.Usage); more > 0 {
+		fmt.Fprintf(p.Out, "+%d more (--scope all, or a narrower symbol)\n", more)
+	}
 }
 
 // Generic writes a map-shaped payload as JSON or a compact dump.

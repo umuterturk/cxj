@@ -17,6 +17,8 @@ func SplitArgs(args []string) (flags, positional []string, err error) {
 		"--verbose": {}, "-verbose": {},
 		"--download": {}, "-download": {},
 		"--example": {}, "-example": {},
+		"--sources-only": {}, "-sources-only": {},
+		"--from-repo-only": {}, "-from-repo-only": {},
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]

@@ -835,6 +835,61 @@ machine. Context7's `codeTokens` budgeting is a good idea; cxj matches it by cap
 and supporting `--compact` without any hosted round-trip.
 **No-state:** opens a zip/`class`, parses, formats, exits; writes nothing.
 
+#### 5.2.1 B2 results — what shipped
+
+All five mechanism steps, in `internal/engine/api.go` + `classfile.go` + `internal/ir/api.go` +
+one printer method + `runApi`. `api` resolves through `Deps` unchanged — coordinates arrive with
+their tier and build-file provenance, and the two honest failure modes keep their shape: several
+coordinates match → list them, one artifact at two cached versions → list them; the surface read
+never picks a winner. The usage tier still answers when the version does not resolve
+(`api jackson-databind ObjectMapper` on `payment-api` says "no version established (ambiguous:
+2.15.2, 2.21.4)" *and* shows the workspace's `ObjectMapper` sites — half an honest answer beats a
+confident wrong one).
+
+The class reader (§5.2 tier 2, the MVP core) is a stdlib constant-pool + member-table parse with
+every table count bounded against the bytes that remain: corrupt input is an error string, never
+a panic or a partial member list. Its fixture is hand-authored `.class` bytes, not compiler
+output — the reader is tested against the spec. The sources tier runs the entries through the
+same `java.Extractor` as workspace code and reads each item's doc-comment first line off the
+source; both tiers render signatures with types and without parameter names, because descriptors
+never carried names and sharing one honest shape beats a per-tier dialect.
+
+`api` is two halves and the cost model says so: the artifact half opens no snapshot (deps
+resolution + bounded zip reads), the usage half is exactly a references query —
+`"api": CapsSymbols` is the ceiling, and `--sources-only` skips the Open entirely. The flags read
+as the plan named them: `--sources-only` = jar question only, `--from-repo-only` = workspace
+question only; together they are a usage error because they cancel each other.
+
+Real usage on `payment-api` (its cache had been IDE-seeded, so the richest tier was live):
+
+    $ cxj api commons-lang3 StringUtils.isBlank --scope all   # 228 ms wall
+    org.apache.commons:commons-lang3 3.18.0  declared  build.gradle:112
+    public surface from sources jar: commons-lang3-3.18.0-sources.jar
+      class org.apache.commons.lang3.StringUtils
+        isBlank(CharSequence)  # Tests if a CharSequence is empty …
+    your call sites (6)
+      src/main/java/…/Payment.java:595  use StringUtils.isBlank  [candidate]
+
+That row — the signature of the version this build compiles against, its own javadoc, and the
+six places this repo calls it, offline — is the Context7 comparison in one screen.
+
+The engine tests build the plan's exit fixture at test time: a sources jar zipped from inline
+`.java` and a class jar carrying the hand-authored `.class` bytes, laid out in both cache shapes;
+they assert the plan's list — sources-tier signatures + docs + private members excluded, class
+tier from the gradle `files-2.1` layout, member filtering, headline mode that refuses to parse
+hundreds of entries, ambiguous lists, no-jar guidance, and the usage tier. Purely additive again:
+31/31 identity, gate green, baseline untouched.
+
+One CLI bug the smoke caught: `--sources-only` had to be added to `SplitArgs`' boolean-flag list
+— unlisted flags are assumed to take a value, so the flag ate its own `--scope`. The house rule
+this implies (new booleans go in two places) is now enforced by the flag list's comment-free
+simplicity rather than by luck.
+
+Not built (documented gaps): parameter names for the class tier (optional attributes; the plan
+accepted their absence), inner-class *members* under a top-level query beyond the matched
+entries' own files, jar signatures/module descriptors, and transitive-only deps (no build-file
+declaration means no coordinate — the same honesty boundary as `deps`).
+
 ---
 
 ## 6. Success metrics (competitive, measurable)
@@ -857,7 +912,8 @@ and supporting `--compact` without any hosted round-trip.
 
 ## 7. Rollout, effort, non-goals
 **Status (2026-10-28): P0, P1, P2, P4, P5, P7 shipped and gated; Track A's cheap half (A0, A1, A2,
-A6, A7) and B1 (`deps`, §5.1.1) are shipped.** Everything below is the remaining queue. A6 moved
+A6, A7) and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) are shipped.** Everything below is the
+remaining queue. A6 moved
 forward because it is the
 cheapest user-visible accuracy win and touches none of the graph code — it paid off, and A7 came
 with it. P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a
@@ -866,7 +922,7 @@ P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× c
 is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
-P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
+P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 → A5 → P3 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
