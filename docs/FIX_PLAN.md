@@ -987,11 +987,13 @@ declaration means no coordinate — the same honesty boundary as `deps`).
 - Track A regression table (§4.4) stays green in CI.
 
 ## 7. Rollout, effort, non-goals
-**Status (2026-10-28): P0, P1, P2, P3, P4, P5, P7 shipped and gated; Track A is complete (A0–A7)
-and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) is shipped.** Only the docs/bench wrap-up
-remains. A4's main-first `find` reorder, A5's trail-cap markers, and A3's caller re-attribution
-were the battery's intended divergences; the identity baseline moves forward with each such
-phase, so from here on any diff is a bug again. A6 moved
+**Status (2026-10-28): complete. Every Track P phase (P0–P5, P7) shipped and gated, Track A
+complete (A0–A7), Track B complete (`deps`/`api`), and the docs/bench wrap-up is shipped** — rewritten README and `SKILL.md`
+(both covering `deps`/`api`/`batch`, the typed-callers law, and the honesty markers), plus
+`scripts/accuracy-bench.sh`, the report-only §4.4 exit checks. A4's main-first `find` reorder,
+A5's trail-cap markers, and A3's caller re-attribution were the battery's intended divergences;
+the identity baseline moved forward with each such phase, and the docs phase left it at 31/31.
+A6 moved
 forward because it is the
 cheapest user-visible accuracy win and touches none of the graph code — it paid off, and A7 came
 with it. P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a
@@ -1000,7 +1002,7 @@ P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× c
 is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
-P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 ✅ → P3 ✅ → A3 ✅ → docs/bench`.
+P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 ✅ → P3 ✅ → A3 ✅ → docs/bench ✅`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
@@ -1011,7 +1013,8 @@ P2 M ✅ (the code was S; the 44-case identity proof and the drift guard were th
 P5 S ✅ (the swap was S; the 641k-position parity test was the work) ·
 B1 M ✅ · P4 M ✅ · B2 M ✅ · A4 S ✅ · A5 S ✅ (half shipped via A2) · P3 M ✅ (the plan's
 premise was wrong; the trace was the work) · A3 M ✅ (the typing rules were M; the honest
-exit — hand-checking every dropped row — was the work) · docs S.
+exit — hand-checking every dropped row — was the work) · docs S ✅ (rewriting prose was S; the
+no-output-change proof for an embedded asset was the battery's job).
 
 **One thing P5 changes about the queue.** The fixture matched `payment-api` by file count and still
 under-reported a superlinear cost by 4.5× (§3.6), so any remaining per-file or per-query loop that
@@ -1033,8 +1036,12 @@ Cross-cutting: shared compact formatting + certainty tiers in `internal/ir`; new
 `SKILL.md`/README examples for `deps`/`api`, the `--scope` flag, and "pass qualified symbols to
 callers/callees"; CI runs `go test ./...` **and the `perf` gate job** (`.github/workflows/build.yml`,
 gate policy in §3.3.1);
-`scripts/perf-bench.sh` (hard gate) is in place — still to add: `scripts/accuracy-benchmark.sh`
-+ `scripts/context7-bench.sh`.
+`scripts/perf-bench.sh` (hard gate) and `scripts/accuracy-bench.sh` (report-only §4.4 exit checks
+against a real repo, `--repo PATH`) are in place. A `context7-bench.sh` was planned and is now an
+**explicit non-goal**: an LLM-answers-vs-tool-answers comparison measures the model behind
+Context7, not the tool, needs network on the hot path it exists to avoid, and produces a number
+no CI could gate without a paid API key and a tolerance for non-determinism. The competitor claim
+cxj can actually defend offline is measured by the perf gate and `deps`/`api`'s no-network tests.
 
 Explicit non-goals (they would break the no-state law or the architecture):
 - **A persisted/cached index or on-disk warm cache as the way to get fast** — speed comes from
