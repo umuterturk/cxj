@@ -104,6 +104,21 @@ public class PayRepository {
     public void save(String body) { }
 }
 `,
+		// An UNMAPPED method named pay on a different type — the shape that made
+		// `trail …CardPaymentClient.pay` on payment-api list POST /v1/payments: a
+		// suffix match on the simple name `pay` pulled in another class's route.
+		// No route here, so the contract is exactly zero http rows.
+		"src/main/java/com/example/paymentapi/CardPaymentClient.java": `package com.example.paymentapi;
+
+import org.springframework.stereotype.Component;
+
+@Component
+public class CardPaymentClient {
+    public String pay(String body) {
+        return body;
+    }
+}
+`,
 		"src/test/java/com/example/paymentapi/PaymentControllerTest.java": `package com.example.paymentapi;
 
 public class PaymentControllerTest {
@@ -239,6 +254,18 @@ func TestTrailHTTPForATypeShowsOnlyItsOwnRoutes(t *testing.T) {
 		if !strings.HasPrefix(h.Symbol, trailPayCtrl+".") {
 			t.Errorf("type card shows a route it does not own: %s (%s)", h.Symbol, h.Detail)
 		}
+	}
+}
+
+// TestTrailHTTPEmptyForUnmappedSameNameMethod is the exit criterion measured on
+// payment-api (A8): `trail …CardPaymentClient.pay` — an unmapped method whose
+// simple name collides with a mapped one — must show NO routes. The suffix
+// fallback made every `*.pay` method in the repo claim POST /v1/payments.
+func TestTrailHTTPEmptyForUnmappedSameNameMethod(t *testing.T) {
+	eng := openTrailEngine(t)
+	hits := eng.Trail(trailPkg + ".CardPaymentClient.pay").HTTP
+	if len(hits) != 0 {
+		t.Errorf("unmapped pay claimed routes it does not declare: %v", hitSymbols(hits))
 	}
 }
 

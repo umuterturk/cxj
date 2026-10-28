@@ -781,6 +781,23 @@ compact JSON (A2); the `(+K more)` cap marker and certainty-in-verbose are still
   members whose own name starts lowercase when the query is capitalized and unqualified
   (`ir.WantsTypeName`). Still a sink, not a filter: `find handler` leads with the field.
   `find Handler --scope all --limit 50`: 0 classes → **50/50 classes**, no test fields.
+- **A8 — `trail` http rows are owner-exact (post-v0.3.0 dogfood; A-RC1 final residue) ✅.**
+  Found by *using* the tool: `trail …CardPaymentClient.pay` — an outbound client method with
+  no route — displayed `POST /v1/payments` with certainty `exact`. The `symbolMatch` suffix
+  arm (`HasSuffix(endpoint, "."+simple)`) had survived A1 because every §4.4 check and every
+  golden queried the *endpoint* symbol, where the name collision happens to coincide with the
+  truth; A3 fixed the identical collision in `callers` and nobody re-asked the http section.
+  The arm is deleted, not narrowed: exact-symbol and class-prefix match both real cases (a
+  method's own route, a class's routes), and a route cannot belong to two methods — a name
+  collision is settled by the ambiguity warning, never by guessing. The fixture gained the
+  shape it lacked (an *unmapped* method named `pay`), the golden states the zero-row law, and
+  `scripts/accuracy-bench.sh` gained a name-collider tripwire so the real-repo script can
+  catch the class of bug it previously could not: verified to FAIL on the pre-fix binary
+  (`OffSessionPayService.pay` claimed a foreign route) and pass after. Battery 31/31
+  identical — the battery itself could not see this fix, which is the same blindness that
+  hid the bug, now closed in both the fixture and the tripwire. Lesson recorded: an exit
+  check that queries only the symbol where the collision equals the truth cannot detect the
+  collision; name-collision shapes must be queried from the *non-owner* side.
 
 ### 4.4 Benchmark table (Track A exit criteria, from `payment-api`)
 | Metric | Before | Target | As shipped |
@@ -792,6 +809,7 @@ compact JSON (A2); the `(+K more)` cap marker and certainty-in-verbose are still
 | `find Controller` result count | 0 | main controller set, main-first | **5 controllers, all main** ✅ (A4 pushed the validation test off the page) |
 | `find Handler` classes on first page | 0 | most of the first page | **5/5**, and 48/50 at `--scope all --limit 50` ✅ (A4: two main-tree `demo.html` text rows now rank above the last two test classes — see A4) |
 | `callers …PaymentController.pay` at `--scope all` | 106 | single digit | **13** ✅ (A3) — all 13 are untypeable chained receivers (`verify(x).pay(...)` style), kept as `candidate`; every wrong-typed receiver dropped, each hand-checked as a call to a *different* class's `pay` |
+| `trail …CardPaymentClient.pay` (unmapped method, colliding name) | 1 foreign route, `exact` | 0 | **0** ✅ (A8); the endpoint keeps its own 1 route, the class card its own 6 |
 
 Every row is checked at `--scope all` as well as at the main-scope default: a narrowed default
 can make an unfixed matcher look fixed, and `callers` was the honest counterexample — open
@@ -988,9 +1006,11 @@ declaration means no coordinate — the same honesty boundary as `deps`).
 
 ## 7. Rollout, effort, non-goals
 **Status (2026-10-28): complete. Every Track P phase (P0–P5, P7) shipped and gated, Track A
-complete (A0–A7), Track B complete (`deps`/`api`), and the docs/bench wrap-up is shipped** — rewritten README and `SKILL.md`
+complete (A0–A8), Track B complete (`deps`/`api`), and the docs/bench wrap-up is shipped** — rewritten README and `SKILL.md`
 (both covering `deps`/`api`/`batch`, the typed-callers law, and the honesty markers), plus
-`scripts/accuracy-bench.sh`, the report-only §4.4 exit checks. A4's main-first `find` reorder,
+`scripts/accuracy-bench.sh`, the report-only §4.4 exit checks. A8 (owner-exact `trail` http
+rows) was added post-v0.3.0: dogfooding the released binary on payment-api found the last
+simple-name suffix match, and the lesson it taught about blind exit checks is recorded with it. A4's main-first `find` reorder,
 A5's trail-cap markers, and A3's caller re-attribution were the battery's intended divergences;
 the identity baseline moved forward with each such phase, and the docs phase left it at 31/31.
 A6 moved

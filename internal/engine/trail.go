@@ -113,12 +113,18 @@ func symbolMatch(got, qualified, simple string) bool {
 	if got == qualified || got == simple {
 		return true
 	}
-	// Dot-boundary only. A bare Contains fallback was the single worst source of
-	// wrong `trail` output: querying ...PaymentController.pay matched every
-	// endpoint in the package, because the package is named `paymentapi` and that
-	// contains `pay`. It also made the correct route disappear, since every
-	// endpoint became a candidate and the trail cap then truncated the real one.
-	return strings.HasPrefix(got, qualified+".") || strings.HasSuffix(got, "."+simple)
+	// Dot-boundary only, and only in the owning direction: a class's card lists
+	// its own routes, a method's card lists its own. A bare Contains fallback was
+	// the single worst source of wrong `trail` output: querying
+	// ...PaymentController.pay matched every endpoint in the package, because the
+	// package is named `paymentapi` and that contains `pay`. It also made the
+	// correct route disappear, since every endpoint became a candidate and the
+	// trail cap then truncated the real one. A simple-name SUFFIX fallback was
+	// the same bug wearing a tie: `trail …CardPaymentClient.pay` (a method with
+	// no route) listed POST /v1/payments, because ...PaymentController.pay ends
+	// in ".pay". Two cards for two methods cannot both own one route; a name
+	// collision is settled by the ambiguity warning, never by guessing.
+	return strings.HasPrefix(got, qualified+".")
 }
 
 // ownerTypeName returns the simple name of the type a definition belongs to, so

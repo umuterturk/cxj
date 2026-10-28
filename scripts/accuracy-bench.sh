@@ -78,6 +78,32 @@ except Exception: h=[]
 print(sum(1 for x in h if own and x['path']!=own))" 2>/dev/null)
 check "trail $sym: http rows from other files" "0" "$wrong_http"
 
+# 2b. The A8 tripwire: find another type's method that SHARES the endpoint's
+# member name (e.g. a client-side `pay`), and require its trail to show no
+# route from a file it does not live in. The bug this catches: a simple-name
+# suffix match made every `*.pay` method claim the endpoint's route.
+collide=$("$cxj" find "${sym##*.}" --json 2>/dev/null | python3 -c "
+import json,sys
+own='''$sym'''
+try: r=json.load(sys.stdin).get('results') or []
+except Exception: r=[]
+print(next((x['symbol'] for x in r if x.get('kind')=='method' and x.get('symbol')!=own), ''))" 2>/dev/null)
+if [[ -n "$collide" ]]; then
+  collide_file=$("$cxj" show --json "$collide" 2>/dev/null | python3 -c '
+import json,sys
+try: print(json.load(sys.stdin).get("path",""))
+except Exception: print("")' 2>/dev/null)
+  collide_http=$("$cxj" trail --json "$collide" 2>/dev/null | python3 -c "
+import json,sys
+own='''$collide_file'''
+try: h=json.load(sys.stdin).get('http') or []
+except Exception: h=[]
+print(sum(1 for x in h if own and x['path']!=own))" 2>/dev/null)
+  check "trail $collide: foreign routes (name collision)" "0" "$collide_http"
+else
+  printf '  skip %-46s (no same-named method found)\n' "trail <collider>: foreign routes"
+fi
+
 # 3. callers <SYM>: a symbol nobody calls from code says nearly so (A3 row).
 # Name-only candidates with untypeable receivers legitimately remain; a flood
 # of them means the receiver typing regressed. Ceiling is generous on purpose.
