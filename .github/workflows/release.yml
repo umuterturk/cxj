@@ -9,8 +9,28 @@ permissions:
   contents: write
 
 jobs:
-  macos-arm64:
-    runs-on: macos-14
+  platform:
+    # Four assets, four real runners: cgo (tree-sitter) makes cross-compiling
+    # a maze, and GitHub's arm Linux runner is free like the x86 one. The
+    # asset names are a contract with `cxj update` (internal/update AssetName)
+    # and the Homebrew tap: macos-arm64, macos-x86_64, linux-x86_64, linux-arm64.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            asset: cxj-macos-arm64.zip
+            notes: true
+          - runner: macos-13 # Intel Macs run the amd64 build
+            asset: cxj-macos-x86_64.zip
+            notes: false
+          - runner: ubuntu-24.04
+            asset: cxj-linux-x86_64.zip
+            notes: false
+          - runner: ubuntu-24.04-arm
+            asset: cxj-linux-arm64.zip
+            notes: false
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,19 +40,24 @@ jobs:
 
       - name: Build
         run: |
-          mkdir -p dist/macos-arm64
-          go build -trimpath -ldflags="-s -w -X github.com/umuterturk/cxj/internal/version.Version=${GITHUB_REF_NAME}" -o dist/macos-arm64/cxj ./cmd/cxj
-          chmod +x dist/macos-arm64/cxj
-          file dist/macos-arm64/cxj
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w -X github.com/umuterturk/cxj/internal/version.Version=${GITHUB_REF_NAME}" -o dist/cxj ./cmd/cxj
+          chmod +x dist/cxj
+          file dist/cxj
+
+      - name: Smoke
+        run: |
+          ./dist/cxj version | grep -q "${GITHUB_REF_NAME}"
+          ./dist/cxj brief --root . >/dev/null
 
       - name: Package
         run: |
-          cp scripts/release-readme.txt dist/macos-arm64/README.txt
-          (cd dist/macos-arm64 && zip -r ../cxj-macos-arm64.zip cxj README.txt)
-          ls -lh dist/cxj-macos-arm64.zip
+          cp scripts/release-readme.txt dist/README.txt
+          (cd dist && zip ../${{ matrix.asset }} cxj README.txt)
+          ls -lh ${{ matrix.asset }}
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/cxj-macos-arm64.zip
-          generate_release_notes: true
+          files: ${{ matrix.asset }}
+          generate_release_notes: ${{ matrix.notes }}
