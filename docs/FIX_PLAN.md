@@ -237,11 +237,21 @@ shipped binary:
 | `trail …PaymentController.pay` (http) | 5 routes, none on it | 1 | `Contains(sym,"pay")` matches package `paymentapi` | bug |
 | `find createPayment` | only test helpers | (term absent in main) | term genuinely not in `src/main` | **artifact, not a bug** |
 | `find Controller` (also `Handler`, `Repository`) | **0** | every `*Controller` class | Java is never substring-searched (A-RC7) | bug |
+| `find Handler` | 31, of which **29 are private test *fields* named `handler`**, **0 are handler classes** | the handler classes | any definition's simple name scores equal regardless of kind (A-RC8) | bug |
+| `callers …PaymentController.pay` with `--scope all` | 106 | ~1 | same A-RC1 collisions, most of them in test files | bug, masked by P1 |
 
-That last row is the one that bites agents hardest: the natural first query in an
+The `find Controller` row is the one that bites agents hardest: the natural first query in an
 unfamiliar service is a suffix of a type name (`find Controller`, `find Handler`), and it
 returns *nothing at all* — not a bad ranking, an empty result. Empty reads as "this
-concept does not exist here", which is worse than a wrong answer.
+concept does not exist here", which is worse than a wrong answer. Its neighbour `find Handler`
+is worse in a different way: 31 confident results, all of them private test fields.
+
+**Caveat on the P1 work: it masked an accuracy bug without fixing it.** `callers
+…PaymentController.pay` measured 106 before P1 and **7** after, because the default main scope
+drops test files and ~99 of those collisions lived in tests. The A-RC1 root cause is fully
+intact — `--scope all` still returns 106. Perf scoping made the *evidence* of an accuracy bug
+disappear, which is the opposite of what a faster tool should do. So A1/A2 must be verified at
+`--scope all`, not only at the new faster default, or the fix can pass while remaining broken.
 
 ### 4.2 Root causes (code-anchored)
 - **A-RC1 simple-name edge matching** — `index.References` via `callMatches` and
@@ -263,6 +273,18 @@ concept does not exist here", which is worse than a wrong answer.
   offers only exact, `.name` suffix, prefix and bounded edit distance — a suffix of a *simple*
   name (`Controller` in `PaymentController`) is none of those, and the fuzzy distance (7) blows
   the budget (1). So `find Controller` cannot match anything.
+- **A-RC8 no kind tier in `find`** — `matchDef` scores the simple name of *any* definition
+  (type, method, field) with equal weight, so for the query `Handler` the ~29 private fields
+  named `handler` in test classes score MatchExact (rank 0) and **every handler class in the
+  repo is outranked**. Distinct from A-RC5: that one is main-vs-test ordering, this is
+  type-vs-member ordering. Fix is a tier in `matchDef`/`mergeLexical` (types before members for a
+  capitalized query), not more fuzzy matching.
+- **A-RC9 `trail` over- and under-reports at once** — the http section on `…PaymentController.pay`
+  shows 5 routes owned by `BackofficePaymentController`/`CallbackController` (matched via
+  `Contains(endpointSymbol, "pay")`, and `paymentapi` contains `pay`) while **omitting the route
+  the method actually has**. The substring match makes every endpoint in the repo a candidate, so
+  the `trailCap` truncation then discards the correct one. Both halves come from one line, and
+  the cap turns a wrong answer into a confidently wrong one.
 
 ### 4.3 Phases (biggest, cheapest win first; red tests before behavior change)
 
@@ -299,6 +321,11 @@ concept does not exist here", which is worse than a wrong answer.
   re-scans source on every query and costs the §3 budget; match on the symbol index we already
   build. **Exit:** `find Controller` on `payment-api` returns the controller set, main-first;
   `find PaymentController` still ranks its class first (guard test).
+- **A7 — Kind tier in `find` (A-RC8).** Land with A6, same file. For a capitalized query, types
+  rank above members; for a lowercase query, members stay eligible. Do not make this a filter —
+  `find handler` (lowercase) should still be able to reach a field. **Exit:** `find Handler` on
+  `payment-api` leads with handler *classes*, and no query's first page is exclusively test
+  fields (combined with A4's source tier).
 
 ### 4.4 Benchmark table (Track A exit criteria, from `payment-api`)
 | Metric | Before | Target |
@@ -308,6 +335,8 @@ concept does not exist here", which is worse than a wrong answer.
 | distinct files in that callees | 23 | 1 |
 | `trail …PaymentController.pay` http rows | 5 (all wrong) | 1 |
 | `find Controller` result count | 0 | main controller set, main-first |
+| `find Handler` handler classes on first page | 0 | most of the first page |
+| `callers …PaymentController.pay` at `--scope all` | 106 | single digit |
 
 ---
 
