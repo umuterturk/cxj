@@ -148,15 +148,15 @@ public class BackofficeHarness {
 
 func goldenFiles() map[string]string {
 	return map[string]string{
-		"src/main/java/com/example/paymentapi/PaymentController.java":        goldenPayController,
-		"src/main/java/com/example/paymentapi/PayService.java":               goldenPayService,
-		"src/test/java/com/example/paymentapi/PayoutTest.java":               goldenPayoutTest,
-		"src/test/java/com/example/paymentapi/PaymentControllerTest.java":    goldenPaymentControllerTest,
-		"src/main/java/com/example/pay/OrderHandler.java":                    goldenOrderHandler,
-		"src/main/java/com/example/pay/ShippingHandler.java":                 goldenShippingHandler,
-		"src/main/java/com/example/pay/OrderHandlerV2.java":                  goldenOrderHandlerV2,
-		"src/main/java/com/example/pay/OrderRepository.java":                 goldenOrderRepository,
-		"src/main/java/com/example/pay/BackofficeHarness.java":               goldenFieldNamedHandler,
+		"src/main/java/com/example/paymentapi/PaymentController.java":     goldenPayController,
+		"src/main/java/com/example/paymentapi/PayService.java":            goldenPayService,
+		"src/test/java/com/example/paymentapi/PayoutTest.java":            goldenPayoutTest,
+		"src/test/java/com/example/paymentapi/PaymentControllerTest.java": goldenPaymentControllerTest,
+		"src/main/java/com/example/pay/OrderHandler.java":                 goldenOrderHandler,
+		"src/main/java/com/example/pay/ShippingHandler.java":              goldenShippingHandler,
+		"src/main/java/com/example/pay/OrderHandlerV2.java":               goldenOrderHandlerV2,
+		"src/main/java/com/example/pay/OrderRepository.java":              goldenOrderRepository,
+		"src/main/java/com/example/pay/BackofficeHarness.java":            goldenFieldNamedHandler,
 	}
 }
 
@@ -253,6 +253,74 @@ func TestCalleesOfUniqueMethodName(t *testing.T) {
 		if r.Path != "src/main/java/com/example/paymentapi/PaymentController.java" {
 			t.Errorf("callee outside the owner's file: %s", r.Path)
 		}
+	}
+}
+
+// TestCalleesOfSharedMethodNameIsOwnerScoped is A2's core claim. `handle` exists on
+// three types here; asking for one of them by its fully-qualified name must not
+// return the other two. This is the bug behind `callees …PayHandler.handle`
+// returning 292 results across 20 files on payment-api: the matcher accepted any
+// edge whose owner *ended with* the queried simple name.
+func TestCalleesOfSharedMethodNameIsOwnerScoped(t *testing.T) {
+	idx := buildGoldenIndex(t)
+	got := idx.Callees(pkgHandler + ".OrderHandler.handle")
+	if len(got) == 0 {
+		t.Fatal("no callees for OrderHandler.handle")
+	}
+	for _, r := range got {
+		if r.Path != "src/main/java/com/example/pay/OrderHandler.java" {
+			t.Errorf("callee from a different owner leaked in: %s %s", r.Path, r.Target)
+		}
+	}
+	for _, r := range got {
+		if strings.Contains(r.Target, "freight") || strings.Contains(r.Target, "legacy") {
+			t.Errorf("callee belongs to ShippingHandler/OrderHandlerV2: %s", r.Target)
+		}
+	}
+}
+
+// TestCalleesOfTypeQueryStaysInsideTheType: a type query means "everything this
+// type calls", and OrderHandlerV2 must not count as OrderHandler.
+func TestCalleesOfTypeQueryStaysInsideTheType(t *testing.T) {
+	idx := buildGoldenIndex(t)
+	got := idx.Callees(pkgHandler + ".OrderHandler")
+	if len(got) == 0 {
+		t.Fatal("no callees for the OrderHandler type")
+	}
+	for _, r := range got {
+		if r.Path != "src/main/java/com/example/pay/OrderHandler.java" {
+			t.Errorf("callee outside the type: %s %s", r.Path, r.Target)
+		}
+	}
+}
+
+// TestLookupAllFindsEveryOwner is the ambiguity surface: a bare name that matches
+// several definitions must report them all, not silently answer about one.
+func TestLookupAllFindsEveryOwner(t *testing.T) {
+	idx := buildGoldenIndex(t)
+
+	all := idx.LookupAll("handle")
+	if len(all) < 3 {
+		t.Fatalf("LookupAll(handle) found %d, want all three owners", len(all))
+	}
+	owners := map[string]bool{}
+	for _, d := range all {
+		owners[d.Owner] = true
+	}
+	for _, want := range []string{
+		pkgHandler + ".OrderHandler",
+		pkgHandler + ".ShippingHandler",
+		pkgHandler + ".OrderHandlerV2",
+	} {
+		if !owners[want] {
+			t.Errorf("LookupAll(handle) missing owner %s", want)
+		}
+	}
+
+	// A fully-qualified query resolves to exactly one definition.
+	one := idx.LookupAll(pkgHandler + ".OrderHandler.handle")
+	if len(one) != 1 {
+		t.Fatalf("qualified LookupAll returned %d, want 1", len(one))
 	}
 }
 

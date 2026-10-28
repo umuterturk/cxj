@@ -280,3 +280,64 @@ func TestContextDoesNotMatchPackageSubstring(t *testing.T) {
 		}
 	}
 }
+
+// --- A2: callees must be owner-scoped ---------------------------------------
+
+// TestCalleesOfSharedMethodIsOwnerScoped is the engine view of the 292-results bug:
+// `handle` exists on PayHandler and RefundHandler here, and asking for one by
+// qualified name must not return the other's call sites.
+func TestCalleesOfSharedMethodIsOwnerScoped(t *testing.T) {
+	eng := openTrailEngine(t)
+	reply := eng.Callees(trailHandler + ".handle")
+	if len(reply.Results) == 0 {
+		t.Fatal("no callees for PayHandler.handle")
+	}
+	for _, r := range reply.Results {
+		if !strings.HasSuffix(r.Path, "PayHandler.java") {
+			t.Errorf("callee from another owner leaked in: %s %s", r.Path, r.Target)
+		}
+	}
+}
+
+// TestTrailCalleesOfSharedMethodStayInOwnerFile, same rule on the card.
+func TestTrailCalleesOfSharedMethodStayInOwnerFile(t *testing.T) {
+	eng := openTrailEngine(t)
+	for _, h := range eng.Trail(trailHandler + ".handle").Callees {
+		if !strings.HasSuffix(h.Path, "PayHandler.java") {
+			t.Errorf("trail callee outside the owner's file: %s %s", h.Path, h.Symbol)
+		}
+	}
+}
+
+// TestCalleesReportsAmbiguity: a bare method name that several types own must say
+// so. Silently answering about one arbitrary owner is how an agent ends up reading
+// the wrong class and believing it is the right one.
+func TestCalleesReportsAmbiguity(t *testing.T) {
+	eng := openTrailEngine(t)
+	reply := eng.Callees("handle")
+	if len(reply.Ambiguous) < 2 {
+		t.Fatalf("bare `handle` should be flagged ambiguous, got %v", reply.Ambiguous)
+	}
+	var sawPayHandler, sawRefundHandler bool
+	for _, a := range reply.Ambiguous {
+		switch {
+		case strings.HasSuffix(a, "PayHandler.handle"):
+			sawPayHandler = true
+		case strings.HasSuffix(a, "RefundHandler.handle"):
+			sawRefundHandler = true
+		}
+	}
+	if !sawPayHandler || !sawRefundHandler {
+		t.Errorf("ambiguity list incomplete: %v", reply.Ambiguous)
+	}
+}
+
+// TestCalleesOfQualifiedSymbolIsNotAmbiguous: the flag must stay quiet when the
+// query already names one owner, or it becomes noise and gets ignored.
+func TestCalleesOfQualifiedSymbolIsNotAmbiguous(t *testing.T) {
+	eng := openTrailEngine(t)
+	reply := eng.Callees(trailHandler + ".handle")
+	if len(reply.Ambiguous) != 0 {
+		t.Errorf("qualified query flagged ambiguous: %v", reply.Ambiguous)
+	}
+}

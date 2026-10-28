@@ -218,18 +218,24 @@ func (idx *SymbolIndex) Callees(symbol string) []ir.RefResult {
 	return out
 }
 
+// fromMatches decides whether a call edge belongs to the queried symbol.
+//
+// Edge.From is always the fully-qualified enclosing method, so a qualified query
+// needs only two rules: it is that method, or it is inside that type. The old
+// version also accepted any owner *ending with* the queried simple name, which is
+// what made `callees …PayHandler.handle` return 292 results from 20 files: every
+// `handle` in the repo qualified. A bare, unqualified name still matches by simple
+// name, because the user genuinely asked for "anything called handle" — the engine
+// flags that case as ambiguous rather than pretending it is precise.
 func fromMatches(from, symbol, simple string) bool {
 	if from == symbol || from == simple {
 		return true
 	}
-	if strings.HasPrefix(from, symbol+".") || strings.HasPrefix(from, simple+".") {
-		return true
+	if strings.Contains(symbol, ".") {
+		return strings.HasPrefix(from, symbol+".")
 	}
-	if strings.HasSuffix(from, "."+simple) || strings.HasSuffix(from, "."+symbol) {
-		return true
-	}
-	if i := strings.LastIndexByte(from, '.'); i >= 0 && from[i+1:] == simple {
-		return true
+	if i := strings.LastIndexByte(from, '.'); i >= 0 {
+		return from[i+1:] == simple
 	}
 	return false
 }
@@ -329,30 +335,66 @@ func isTestFile(p string) bool {
 }
 
 // Lookup finds a definition by qualified or simple name. Types win over members.
+// When a name is owned by several types this returns the first one it finds, which
+// is a guess; callers that can report uncertainty should use LookupAll instead and
+// surface the alternatives rather than silently picking one.
 func (idx *SymbolIndex) Lookup(symbol string) (ir.Definition, bool) {
-	symbol = strings.TrimSpace(symbol)
-	if symbol == "" {
+	all := idx.LookupAll(symbol)
+	if len(all) == 0 {
 		return ir.Definition{}, false
 	}
-	var named []ir.Definition
+	return all[0], true
+}
+
+// LookupAll returns every definition a name could refer to, best guess first:
+// an exact qualified match alone, otherwise types before members, then ordered by
+// qualified name so results are stable. len(result) > 1 means the query is
+// ambiguous, which is information the caller should show rather than hide.
+func (idx *SymbolIndex) LookupAll(symbol string) []ir.Definition {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return nil
+	}
+	var exact, named []ir.Definition
 	for _, d := range idx.defs {
 		if d.Qualified == symbol {
-			return d, true
+			exact = append(exact, d)
+			continue
 		}
 		if d.Name == symbol || strings.HasSuffix(d.Qualified, "."+symbol) {
 			named = append(named, d)
 		}
 	}
-	if len(named) == 0 {
-		return ir.Definition{}, false
+	if len(exact) == 1 {
+		return exact
 	}
-	for _, d := range named {
-		switch d.Kind {
-		case ir.SymbolClass, ir.SymbolInterface, ir.SymbolEnum:
-			return d, true
+	cands := named
+	if len(exact) > 1 {
+		cands = exact
+	} else if len(named) == 0 {
+		return nil
+	}
+	out := make([]ir.Definition, len(cands))
+	copy(out, cands)
+	sort.SliceStable(out, func(i, j int) bool {
+		ti, tj := isTypeKind(out[i].Kind), isTypeKind(out[j].Kind)
+		if ti != tj {
+			return ti
 		}
+		if out[i].Qualified != out[j].Qualified {
+			return out[i].Qualified < out[j].Qualified
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
+func isTypeKind(k ir.SymbolKind) bool {
+	switch k {
+	case ir.SymbolClass, ir.SymbolInterface, ir.SymbolEnum:
+		return true
 	}
-	return named[0], true
+	return false
 }
 
 func (idx *SymbolIndex) implementors(iface string) map[string]struct{} {

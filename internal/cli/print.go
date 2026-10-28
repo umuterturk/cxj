@@ -102,6 +102,11 @@ func (p *Printer) References(reply ir.RefReply, m Mode) int {
 		if reply.Resolved != "" {
 			out["resolved"] = reply.Resolved
 		}
+		if len(reply.Ambiguous) > 0 {
+			shown, total := capAmbiguous(reply.Ambiguous)
+			out["ambiguous"] = shown
+			out["ambiguous_total"] = total
+		}
 		return p.JSON(out)
 	}
 	if m.JSON {
@@ -110,6 +115,7 @@ func (p *Printer) References(reply ir.RefReply, m Mode) int {
 	if reply.Resolved != "" {
 		fmt.Fprintf(p.Out, "resolved %s\n", reply.Resolved)
 	}
+	p.ambiguous(reply.Ambiguous)
 	for _, r := range reply.Results {
 		kind := string(r.Kind)
 		if kind == "" {
@@ -122,6 +128,33 @@ func (p *Printer) References(reply ir.RefReply, m Mode) int {
 		fmt.Fprintf(p.Out, "%s:%d %s %s\n", r.Path, r.Line, kind, r.Target)
 	}
 	return 0
+}
+
+// ambiguous flags a query that matched more than one owner. The results below it
+// describe only the first candidate, so a reader who is not told may act on one
+// class's data believing it covers all of them.
+func (p *Printer) ambiguous(alts []string) {
+	if len(alts) == 0 {
+		return
+	}
+	shown, total := capAmbiguous(alts)
+	extra := ""
+	if total > len(shown) {
+		extra = fmt.Sprintf(" +%d", total-len(shown))
+	}
+	fmt.Fprintf(p.Out, "ambiguous %d: qualify the query (%s%s)\n", total, strings.Join(shown, " "), extra)
+}
+
+// capAmbiguous keeps the hint inside a sane token budget: a bare method name like
+// handle can be owned by dozens of classes in a real repo, and the whole point of
+// the flag is that the reader should narrow the query, not read every candidate.
+// The count is always the true total so the truncation is visible.
+func capAmbiguous(alts []string) ([]string, int) {
+	const maxShown = 5
+	if len(alts) <= maxShown {
+		return alts, len(alts)
+	}
+	return alts[:maxShown], len(alts)
 }
 
 // Show writes a definition body.

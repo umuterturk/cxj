@@ -92,8 +92,13 @@ type RefResult struct {
 
 // RefReply is the cx references --json payload.
 type RefReply struct {
-	Results  []RefResult `json:"results"`
-	Resolved string      `json:"resolved,omitempty"`
+	Results []RefResult `json:"results"`
+	// Resolved names the symbol the query was resolved to, when it differed.
+	Resolved string `json:"resolved,omitempty"`
+	// Ambiguous lists the other definitions a query could have meant. Non-empty
+	// means the results describe one of several same-named symbols, so the reader
+	// should qualify the query. Empty whenever the query pinned one owner.
+	Ambiguous []string `json:"ambiguous,omitempty"`
 }
 
 // ShowReply is the cx show --json payload.

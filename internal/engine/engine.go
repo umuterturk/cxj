@@ -273,11 +273,43 @@ func rankMatch(m ir.MatchKind) int {
 	}
 }
 
-// References looks up symbol uses. If the name has no exact hits, resolve it
-// through lexical/fuzzy search and retry — do not invent exact dispatch.
+// resolveOwners maps a user query to the definitions it can mean.
+//
+// It returns the best fully-qualified name to ask the index about, plus the full
+// candidate set when the query matched more than one definition. Returning the
+// qualified name matters beyond tidiness: the index matchers are strict about
+// qualified queries and only fall back to simple-name matching for genuinely
+// unqualified input, so resolving here is what keeps a precise query precise.
+//
+// The candidate list includes the definition actually answered about, not just the
+// losers. A reader shown "ambiguous: RefundHandler.handle" while reading results
+// for PayHandler.handle would wrongly conclude those two are different queries.
+func (e *Engine) resolveOwners(symbol string) (string, []string) {
+	symbol = strings.TrimSpace(symbol)
+	all := e.syms.LookupAll(symbol)
+	if len(all) <= 1 {
+		if len(all) == 1 {
+			return all[0].Qualified, nil
+		}
+		return symbol, nil
+	}
+	cands := make([]string, 0, len(all))
+	for _, d := range all {
+		cands = append(cands, d.Qualified)
+	}
+	return all[0].Qualified, cands
+}
+
+// References looks up symbol uses. The query is resolved to a definition first; if
+// nothing is found it retries through lexical/fuzzy search — never inventing exact
+// dispatch.
 func (e *Engine) References(symbol string) ir.RefReply {
-	results := e.syms.References(symbol)
+	qualified, alts := e.resolveOwners(symbol)
+	results := e.syms.References(qualified)
 	resolved := ""
+	if qualified != symbol && len(results) > 0 {
+		resolved = qualified
+	}
 	if len(results) == 0 {
 		if name, ok := resolveSymbolName(e.syms.Search(symbol, 5)); ok && !strings.EqualFold(name, symbol) {
 			resolved = name
@@ -287,7 +319,7 @@ func (e *Engine) References(symbol string) ir.RefReply {
 	if results == nil {
 		results = []ir.RefResult{}
 	}
-	return ir.RefReply{Results: results, Resolved: resolved}
+	return ir.RefReply{Results: results, Resolved: resolved, Ambiguous: alts}
 }
 
 // Callers is References filtered to use sites only.
@@ -357,10 +389,14 @@ func (e *Engine) Root() string { return e.root }
 // scope. Used to hint the user toward --scope all on a miss.
 func (e *Engine) ScopeFilteredTests() bool { return e.stats.SkippedScope > 0 }
 
-// Callees lists outbound call sites from symbol.
+// Callees lists outbound call sites from symbol, scoped to that owner.
 func (e *Engine) Callees(symbol string) ir.RefReply {
-	results := e.syms.Callees(symbol)
+	qualified, alts := e.resolveOwners(symbol)
+	results := e.syms.Callees(qualified)
 	resolved := ""
+	if qualified != symbol && len(results) > 0 {
+		resolved = qualified
+	}
 	if len(results) == 0 {
 		if name, ok := resolveSymbolName(e.syms.Search(symbol, 5)); ok && !strings.EqualFold(name, symbol) {
 			resolved = name
@@ -370,7 +406,7 @@ func (e *Engine) Callees(symbol string) ir.RefReply {
 	if results == nil {
 		results = []ir.RefResult{}
 	}
-	return ir.RefReply{Results: results, Resolved: resolved}
+	return ir.RefReply{Results: results, Resolved: resolved, Ambiguous: alts}
 }
 
 // Keys lists config key names without values.
