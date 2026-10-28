@@ -260,6 +260,7 @@ func runInstallGlobal() int {
 }
 
 type common struct {
+	cmd      string
 	root     *string
 	asJSON   *bool
 	compact  *bool
@@ -270,7 +271,7 @@ type common struct {
 }
 
 func addCommon(fs *flag.FlagSet) *common {
-	c := &common{}
+	c := &common{cmd: fs.Name()}
 	c.root = fs.String("root", "", "workspace root (default: current directory)")
 	c.asJSON = fs.Bool("json", false, "emit JSON")
 	c.compact = fs.Bool("compact", false, "strip JSON to path,line,symbol")
@@ -282,7 +283,7 @@ func addCommon(fs *flag.FlagSet) *common {
 }
 
 func printExamples(c *common, cmd string) int {
-	eng, err := openEngine(c)
+	eng, err := openEverything(c, scan.ScopeAll)
 	if err != nil {
 		return failOpen(err)
 	}
@@ -304,13 +305,23 @@ func (c *common) mode() cli.Mode {
 	return cli.Mode{JSON: *c.asJSON, Compact: *c.compact, Verbose: *c.verbose}
 }
 
+// openEngine opens the workspace with exactly the sub-indexes the calling command
+// reads. The capability set comes from the command name and nowhere else, so it
+// cannot drift from what the command actually calls.
 func openEngine(c *common) (*engine.Engine, error) {
-	return openEngineWith(c, engine.Options{})
+	return openEngineWith(c, engine.Options{Caps: engine.CapsFor(c.cmd)})
 }
 
 // openScoped opens with a command-specific default scope, overridable by --scope.
 func openScoped(c *common, def scan.Scope) (*engine.Engine, error) {
-	return openEngineWith(c, engine.Options{Scope: def})
+	return openEngineWith(c, engine.Options{Caps: engine.CapsFor(c.cmd), Scope: def})
+}
+
+// openEverything is for --example only: building workspace-grounded suggestions
+// samples every sub-index, so a trimmed capability set would quietly turn real
+// examples into fallbacks. Correctness there beats the few milliseconds.
+func openEverything(c *common, def scan.Scope) (*engine.Engine, error) {
+	return openEngineWith(c, engine.Options{Caps: engine.CapsAll, Scope: def})
 }
 
 func openEngineWith(c *common, opts engine.Options) (*engine.Engine, error) {
@@ -374,7 +385,8 @@ func runBrief(args []string) int {
 	if *c.example {
 		return printExamples(c, "brief")
 	}
-	eng, err := openEngineWith(c, engine.Options{BriefOnly: true})
+	// ScopeAll on purpose: brief reports TestClasses, which main-only would zero out.
+	eng, err := openScoped(c, scan.ScopeAll)
 	if err != nil {
 		return failOpen(err)
 	}

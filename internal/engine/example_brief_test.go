@@ -19,7 +19,7 @@ func TestStaticExamples_versionUpdate(t *testing.T) {
 func TestExamples_briefWhy(t *testing.T) {
 	eng, err := Open(writeTree(t, map[string]string{
 		"src/main/java/com/example/App.java": "package com.example; class App {}",
-	}), Options{})
+	}), Options{Caps: CapsAll})
 	if err != nil {
 		t.Fatal(err)
 	}

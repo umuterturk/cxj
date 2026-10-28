@@ -131,7 +131,7 @@ public class PaymentControllerValidationTest {
 
 func openTrailEngine(t *testing.T) *Engine {
 	t.Helper()
-	eng, err := Open(writeTree(t, trailFiles()), Options{Scope: scan.ScopeMain})
+	eng, err := Open(writeTree(t, trailFiles()), Options{Caps: CapsFor("trail"), Scope: scan.ScopeMain})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestTrailHTTPForATypeShowsOnlyItsOwnRoutes(t *testing.T) {
 // Asking about the `pay` *method* must not drag in every type whose name merely
 // contains "pay" — PayoutTest shares a prefix with the package, not with the class.
 func TestTrailTestsMatchTheOwnerType(t *testing.T) {
-	eng, err := Open(writeTree(t, trailFiles()), Options{})
+	eng, err := Open(writeTree(t, trailFiles()), Options{Caps: CapsFor("trail")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ public class PayHandler {
 `,
 		"src/main/resources/application.yml": "app:\n  handler: pay\n  other-handler: refund\n",
 	}
-	eng, err := Open(writeTree(t, files), Options{})
+	eng, err := Open(writeTree(t, files), Options{Caps: CapsFor("find")})
 	if err != nil {
 		t.Fatal(err)
 	}

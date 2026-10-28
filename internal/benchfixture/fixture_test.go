@@ -69,7 +69,8 @@ func TestWriteProducesAnIndexableWorkspace(t *testing.T) {
 	if _, err := Write(root, Options{Modules: 2, TypesPerModule: 3, TestTypesPerModule: 2}); err != nil {
 		t.Fatal(err)
 	}
-	eng, err := engine.Open(root, engine.Options{})
+	// CapsAll: this checks the fixture is indexable, not what one command reads.
+	eng, err := engine.Open(root, engine.Options{Caps: engine.CapsAll})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ func TestWriteProducesAnIndexableWorkspace(t *testing.T) {
 		t.Fatal("fixture produced no callers for service.load")
 	}
 
-	main, err := engine.Open(root, engine.Options{Scope: scan.ScopeMain})
+	main, err := engine.Open(root, engine.Options{Caps: engine.CapsAll, Scope: scan.ScopeMain})
 	if err != nil {
 		t.Fatal(err)
 	}

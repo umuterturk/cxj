@@ -13,11 +13,12 @@ func TestOpenScopeMainExcludesTestSymbols(t *testing.T) {
 	}
 	root := writeTree(t, files)
 
-	all, err := Open(root, Options{})
+	// CapsAll: this test is about scope, not about what a command reads.
+	all, err := Open(root, Options{Caps: CapsAll})
 	if err != nil {
 		t.Fatal(err)
 	}
-	main, err := Open(root, Options{Scope: scan.ScopeMain})
+	main, err := Open(root, Options{Caps: CapsAll, Scope: scan.ScopeMain})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,8 +40,8 @@ func TestOpenScopeMainExcludesTestSymbols(t *testing.T) {
 	}
 }
 
-// TestBriefKeepsTestClasses verifies the fast brief path (ScopeAll + BriefOnly)
-// still sees test facts, so the TestClasses count is not silently zeroed by P1.
+// TestBriefKeepsTestClasses verifies the fast brief path (CapsBrief, ScopeAll) still
+// sees test facts, so the TestClasses count is not silently zeroed by P1.
 func TestBriefKeepsTestClasses(t *testing.T) {
 	files := map[string]string{
 		"src/main/java/com/example/App.java":     "package com.example;\npublic class App {}\n",

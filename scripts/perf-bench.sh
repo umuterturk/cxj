@@ -188,6 +188,11 @@ if [[ -n "$symbol" ]]; then
   measure trail_main trail "$symbol" "${r[@]}"
   measure callees_main callees "$symbol" "${r[@]}"
   measure trail_all trail "$symbol" "${r[@]}" --scope all
+  # show/outline are the sharpest sub-index trim: definitions and edges only, so they
+  # pay for no Spring parse, no binding parse and no text lines. They need a symbol, so
+  # they live in this block rather than with the unconditional cases.
+  measure show_main show "$symbol" "${r[@]}"
+  measure outline_main outline "$symbol" "${r[@]}"
 else
   echo
   echo "note: no symbol cases measured. Set CXJ_BENCH_SYMBOL=com.acme.Thing.method" >&2

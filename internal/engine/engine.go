@@ -22,9 +22,11 @@ import (
 type Options struct {
 	Excludes []string
 	Logger   *log.Logger
-	// BriefOnly skips symbol/text/binding indexes and spring-extracts only main sources.
-	// Safe for Brief(); other commands need a full Open.
-	BriefOnly bool
+	// Caps selects which sub-indexes Open builds. Use CapsFor(command) rather than
+	// listing bits by hand: what a command reads belongs in one table.
+	// The zero value builds nothing, which returns empty results rather than
+	// failing, so a command that forgets to ask is a bug you can see.
+	Caps Capabilities
 	// Scope selects which source tree to index. Zero value (ScopeAll) matches
 	// historical behavior. Main-only is the default for navigational commands.
 	Scope scan.Scope
@@ -76,57 +78,70 @@ func Open(root string, opts Options) (*Engine, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			javaExt := java.NewExtractor()
-			defer javaExt.Close()
-			springExt := spring.NewExtractor()
-			defer springExt.Close()
+			// One grammar load per worker per extractor, so a command that reads no
+			// Java pays for no parser: `keys` used to load three.
+			var javaExt *java.Extractor
+			if opts.Caps.Has(CapJava) {
+				javaExt = java.NewExtractor()
+				defer javaExt.Close()
+			}
+			var springExt *spring.Extractor
+			if opts.Caps.Has(CapSpring) || opts.Caps.Has(CapSpringMain) {
+				springExt = spring.NewExtractor()
+				defer springExt.Close()
+			}
 			var bindExt *config.BindingExtractor
-			if !opts.BriefOnly {
+			if opts.Caps.Has(CapBindings) {
 				bindExt = config.NewBindingExtractor()
 				defer bindExt.Close()
 			}
 			for i := range jobs {
 				f := res.Files[i]
-				base := filepath.Base(f.RelPath)
-				if opts.BriefOnly && !f.IsJava {
-					if !config.IsConfigFile(f.RelPath) && !isBuildFileName(base) {
-						continue
-					}
+				// Zero work means the file is never opened at all. That is the point:
+				// skipping the indexing step but still reading 850 files would win
+				// almost nothing.
+				work := opts.workFor(f.RelPath, f.IsJava)
+				if work == 0 {
+					continue
 				}
 				data, err := os.ReadFile(f.AbsPath)
 				if err != nil {
 					continue
 				}
 				var slot fileSlot
-				if j, b := parseBuildVersions(base, data); j != "" || b != "" {
-					slot.ver = &versionHit{
-						depth: strings.Count(f.RelPath, "/"),
-						java:  j,
-						boot:  b,
+				if work&workVersions != 0 {
+					if j, b := parseBuildVersions(filepath.Base(f.RelPath), data); j != "" || b != "" {
+						slot.ver = &versionHit{
+							depth: strings.Count(f.RelPath, "/"),
+							java:  j,
+							boot:  b,
+						}
 					}
 				}
 				if f.IsJava {
-					ff, err := javaExt.Extract(f.RelPath, data)
-					if err != nil {
-						continue
+					if work&workJava != 0 {
+						ff, err := javaExt.Extract(f.RelPath, data)
+						if err != nil {
+							continue
+						}
+						slot.facts = &ff
 					}
-					slot.facts = &ff
-					// Brief only needs spring facts from main sources (HTTP/outbounds/runners).
-					if !opts.BriefOnly || !isTestPath(f.RelPath) {
+					if work&workSpring != 0 {
 						sf := springExt.Extract(f.RelPath, data)
 						slot.spring = &sf
 					}
-					if bindExt != nil {
+					if work&workBindings != 0 {
 						slot.bindings = bindExt.ExtractBindings(f.RelPath, data)
 					}
-					slots[i] = slot
-					continue
-				}
-				if cfg, err := config.ParseIfConfig(f.RelPath, data); err == nil && cfg != nil {
-					slot.cfg = cfg
-				}
-				if !opts.BriefOnly {
-					slot.text = splitLinesRedacted(f.RelPath, data)
+				} else {
+					if work&workConfig != 0 {
+						if cfg, err := config.ParseIfConfig(f.RelPath, data); err == nil && cfg != nil {
+							slot.cfg = cfg
+						}
+					}
+					if work&workText != 0 {
+						slot.text = splitLinesRedacted(f.RelPath, data)
+					}
 				}
 				slots[i] = slot
 			}
@@ -167,25 +182,30 @@ func Open(root string, opts Options) (*Engine, error) {
 	}
 
 	javaVer, bootVer := pickVersions(verHits)
-	eng := &Engine{
+	// Every index is built, empty or not: a nil *SymbolIndex panics on the first
+	// method call, and a command that misdeclares its capabilities should return
+	// nothing, not crash. Building from an empty slice costs nothing, so the saving
+	// here comes from not extracting, not from skipping the constructor.
+	var symFacts []ir.FileFacts
+	if opts.Caps.Has(CapSymbolIndex) {
+		symFacts = facts
+	}
+	return &Engine{
 		root:    root,
 		stats:   res.Stats,
 		gen:     1,
 		facts:   facts,
+		syms:    index.Build(symFacts),
+		text:    index.BuildText(textLines),
 		spring:  spring.Build(springFacts),
 		cfg:     config.Build(cfgFiles, bindings),
 		javaVer: javaVer,
 		bootVer: bootVer,
-	}
-	if !opts.BriefOnly {
-		eng.syms = index.Build(facts)
-		eng.text = index.BuildText(textLines)
-	}
-	return eng, nil
+	}, nil
 }
 
-func isBuildFileName(base string) bool {
-	switch base {
+func isBuildFileName(path string) bool {
+	switch filepath.Base(path) {
 	case "pom.xml", "build.gradle", "build.gradle.kts":
 		return true
 	default:

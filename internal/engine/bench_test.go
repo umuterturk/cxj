@@ -90,7 +90,8 @@ func benchSize(b *testing.B, root string) {
 // every candidate is verified before it is used.
 func benchSymbol(b *testing.B, root string) string {
 	b.Helper()
-	eng, err := Open(root, Options{Scope: scan.ScopeMain})
+	// Caps here cover both probes below (Trail and Search). Setup only, never timed.
+	eng, err := Open(root, Options{Caps: CapsTrail | CapsSearch, Scope: scan.ScopeMain})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -131,32 +132,34 @@ func BenchmarkOpen(b *testing.B) {
 	benchSize(b, root)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if _, err := Open(root, Options{}); err != nil {
+		if _, err := Open(root, Options{Caps: CapsAll}); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
 // BenchmarkOpenMain is P1's claim: main scope skips the src/test parse work
-// entirely, not just the indexing of it.
+// entirely, not just the indexing of it. CapsAll makes it the worst case at main
+// scope, i.e. a command that reads every sub-index.
 func BenchmarkOpenMain(b *testing.B) {
 	root := benchRoot(b)
 	benchSize(b, root)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if _, err := Open(root, Options{Scope: scan.ScopeMain}); err != nil {
+		if _, err := Open(root, Options{Caps: CapsAll, Scope: scan.ScopeMain}); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// BenchmarkBrief is the cheap orientation card (BriefOnly, full scope by design).
+// BenchmarkBrief is the cheap orientation card (brief's capability set, full scope
+// by design: it reports test-class counts).
 func BenchmarkBrief(b *testing.B) {
 	root := benchRoot(b)
 	benchSize(b, root)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		eng, err := Open(root, Options{BriefOnly: true})
+		eng, err := Open(root, Options{Caps: CapsBrief})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -172,7 +175,7 @@ func BenchmarkTrail(b *testing.B) {
 	sym := benchSymbol(b, root)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		eng, err := Open(root, Options{Scope: scan.ScopeMain})
+		eng, err := Open(root, Options{Caps: CapsFor("trail"), Scope: scan.ScopeMain})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -190,7 +193,7 @@ func BenchmarkCallees(b *testing.B) {
 	sym := benchSymbol(b, root)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		eng, err := Open(root, Options{Scope: scan.ScopeMain})
+		eng, err := Open(root, Options{Caps: CapsFor("callees"), Scope: scan.ScopeMain})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -198,14 +201,14 @@ func BenchmarkCallees(b *testing.B) {
 	}
 }
 
-// BenchmarkEndpoints is a spring-only query that still pays for a full Open. That
-// over-build is what P2 removes, so this is its baseline.
+// BenchmarkEndpoints is P2's claim: a spring-only query no longer pays for the Java
+// parse, the binding parse, or the text index. Before P2 this opened everything.
 func BenchmarkEndpoints(b *testing.B) {
 	root := benchRoot(b)
 	benchSize(b, root)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		eng, err := Open(root, Options{Scope: scan.ScopeMain})
+		eng, err := Open(root, Options{Caps: CapsFor("endpoints"), Scope: scan.ScopeMain})
 		if err != nil {
 			b.Fatal(err)
 		}

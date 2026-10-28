@@ -27,7 +27,7 @@ func writeTree(t *testing.T, files map[string]string) string {
 
 func openBrief(t *testing.T, files map[string]string) ir.BriefReply {
 	t.Helper()
-	eng, err := Open(writeTree(t, files), Options{BriefOnly: true})
+	eng, err := Open(writeTree(t, files), Options{Caps: CapsBrief})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,9 +61,9 @@ func TestSelectBriefPackages_bootRootPlusDepth1(t *testing.T) {
 
 func TestSelectBriefPackages_synthesizeEmptyIntermediates(t *testing.T) {
 	pkgTypes := map[string]int{
-		"com.example.app":                          1,
-		"com.example.app.application.usecase":      4,
-		"com.example.app.infrastructure.adapter":   6,
+		"com.example.app":                           1,
+		"com.example.app.application.usecase":       4,
+		"com.example.app.infrastructure.adapter":    6,
 		"com.example.app.infrastructure.adapter.db": 2,
 	}
 	got := selectBriefPackages(pkgTypes, []string{"com.example.app"}, "main")

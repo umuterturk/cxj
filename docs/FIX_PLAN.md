@@ -123,10 +123,11 @@ serial fraction — not more cores.**
   reads every file, and runs `java.Extractor` on **all** Java including `src/test` (engine.go).
   A `trail`/`callees`/`endpoints` query almost never needs test files, yet pays ~3× to parse them
   (they are invocation-dense: dense `calls` edges + text lines).
-- **P-RC2 every sub-index is always built.** Non-`BriefOnly` Open builds symbol + text +
-  binding + spring + config unconditionally. `show`/`outline` need only definitions;
-  `endpoints`/`beans` need only spring; `keys`/`config` need only config. Over-building wastes CPU
-  and GC on the hot path.
+- **P-RC2 every sub-index is always built. ✅ fixed by P2.** Non-`BriefOnly` Open built symbol +
+  text + binding + spring + config unconditionally. `show`/`outline` need only definitions;
+  `endpoints`/`beans` need only spring; `keys`/`config` need only config. Over-building wasted CPU
+  and GC on the hot path. Now a `Capabilities` bitmask derived from the command name
+  (`internal/engine/caps.go`), resolved per file *before* `ReadFile`.
 - **P-RC3 serial fraction caps scaling.** `scan.Scan` is a single-threaded `filepath.WalkDir`,
   and the post-walk accumulation + `index.Build` + `sort.SliceStable` in `mergeLexical` run
   largely serially (scan.go, engine.go). ~19% serial ⇒ ~5× ceiling regardless of core count.
@@ -156,10 +157,39 @@ serial fraction — not more cores.**
   a test symbol can't silently read as "not found". `find`/`map`/`brief`/`ask` keep everything —
   `brief` deliberately stays full-scope or its `TestClasses` count would read zero, which
   `TestBriefKeepsTestClasses` now guards.
-- **P2 — Sub-index selection (P-RC2).** `Options` carries which indexes a command needs; `Open`
-  builds only those (extend the existing `BriefOnly` mechanism to a capability bitmask).
-  **Exit:** `show`/`outline`/`endpoints`/`keys` skip symbol+text+binding build; cpu drops ≥ 30%
-  on those commands.
+- **P2 — Sub-index selection (P-RC2). ✅ shipped.** `Options.Caps` carries a `Capabilities`
+  bitmask and `Open` builds only what is asked for, generalized from `BriefOnly` as planned. Three
+  things the one-line version of this phase did not anticipate:
+  - **The set is derived from the command name and nowhere else** (`CapsFor(cmd)` → one table). A
+    phase that handed each call site its own bit list would have drifted the moment a command grew
+    a new query, and drift in this table is invisible: the fallback for an unknown command is
+    `CapsAll`, deliberately correct-but-slow. `TestEveryCommandDeclaresItsCapabilities` closes the
+    loop by scanning `main()`'s command switch and requiring every workspace-opening command to
+    appear in the table (verified red by deleting a row).
+  - **Skipping the parse, not just the index.** Each worker resolves a per-file work set and
+    `continue`s **before `ReadFile`**, so `keys` neither opens nor parses the 850 Java files it
+    never reads, and loads zero Tree-sitter grammars instead of three.
+  - **`CapSymbolIndex` had to be split out of `CapJava`.** Building every index unconditionally —
+    the safe-looking way to avoid nil-index panics — made `brief` 6 % slower and doubled its RSS
+    (44 MB → 83 MB), because `brief` reads per-file *facts* for its counts and never queries the
+    symbol index. Facts and index are different needs. Panic-safety is kept by building an *empty*
+    index when the bit is off: `TestNoCapabilitiesLooksLikeAnEmptyWorkspace` asserts a
+    misdeclared command answers exactly what it would answer on an empty repo, so it degrades to
+    silence rather than to a panic.
+  **Exit — met.** A/B of the pre-P2 binary against this one on the same workspace: `keys`
+  1090 → 300 ms cpu (−72 %), `endpoints` 1090 → 339 (−69 %), `show` 1120 → 660 (−41 %), `outline`
+  1120 → 660 (−41 %), all ≥ 30 %, RSS 42 MB → 20 MB on the config/spring paths. One correction to
+  the exit wording: `show`/`outline` cannot skip the *symbol* index, because resolving a symbol
+  query is what the symbol index does — they skip spring, config, bindings and text lines.
+  `endpoints`/`beans`/`keys`/`config` skip symbol, text and bindings entirely.
+  **Correctness proof** (the part that matters more than the numbers): every trimmed reply must
+  equal the reply from a full build. `TestTrimmedCapsAnswerIdentically` runs 22 command-shaped
+  questions through `CapsFor(cmd)` and a full build at both scopes and requires `reflect.DeepEqual`
+  — 44 cases, all equal. Each case is first required to answer *differently than it answers an
+  empty workspace*, since two empty answers agree with each other and prove nothing.
+  End to end, 28 invocations of the two binaries over `payment-api` (both scopes, text and JSON)
+  are byte-identical; the only field that moved anywhere is `status --json`'s
+  `go_heap_alloc_bytes`, 44.9 MB → 3.1 MB.
 - **P3 — Attack the serial fraction (P-RC3).** Parallelize independent post-parse work (per-file
   facts already arrive in slots — build symbol/text/spring/config shards concurrently and merge);
   pre-size and parallelize sort where order-independent. Target serial < 8% ⇒ ~9× on 12 cores,
@@ -198,7 +228,7 @@ Because cores past ~4 add CPU without wall-time benefit, prefer to cap effective
 `GOMAXPROCS=ncpu`, to avoid scheduling onto efficiency cores that add heat for no latency. Make
 this the default worker count, overridable by `--workers`/`GOMAXPROCS`.
 
-### 3.5 P0+P1 results (measured after shipping, same harness)
+### 3.5 P0+P1+P2 results (measured after shipping, same harness)
 
 `scripts/perf-bench.sh` median of 5, Apple M3 Pro, warm cache. `payment-api` (561 main / 849
 total java) in report-only mode:
@@ -221,6 +251,45 @@ real repo's shape. In-process Go benchmarks confirm the scaling story from §3 h
 fixture size — full Open 1.63 s @1 core, 0.49 s @4, 0.35 s @8 (**4.7× on 8 cores**, so the
 ~19 % serial fraction is the ceiling), and main-scope allocation drops 141 MB → 64 MB, which is
 the garbage P5 attacks.
+
+**P2 (sub-index selection).** Gated fixture numbers, before → after, median of 5:
+
+| Fixture case | wall | cpu | RSS |
+|---|---|---|---|
+| `keys` | 150 → **70 ms** | 1190 → **320 ms** | 42 → **20 MB** |
+| `endpoints` | 150 → **70 ms** | 1190 → **350 ms** | 40 → **20 MB** |
+| `find` main scope | 160 → **110 ms** | 1210 → **650 ms** | 43 → 40 MB |
+| `callees` main scope | 150 → **110 ms** | 1190 → **670 ms** | 41 → 40 MB |
+| `trail` main scope | 160 → **130 ms** | 1200 → **920 ms** | 42 → 41 MB |
+| `show` / `outline` (new cases) | — → **100 ms** | — → **640 ms** | — → 40/37 MB |
+| `trail --scope all` | 340 → **270 ms** | 3130 → **2430 ms** | 84 → 76 MB |
+| `brief` (unchanged by design) | 230 ms | 2010 → 1990 ms | 44 → 45 MB |
+
+On `payment-api` (min of 6, alternating runs so thermals hit both binaries equally):
+
+| Command | ref wall/cpu | P2 wall/cpu | cpu win |
+|---|---|---|---|
+| `keys` | 170 ms / 940 ms | 100 ms / **300 ms** | **3.1×** |
+| `endpoints` | 160 ms / 929 ms | 100 ms / **310 ms** | **3.0×** |
+| `beans` | 170 ms / 909 ms | 100 ms / **310 ms** | **2.9×** |
+| `show` / `outline` / `callees` | 160 ms / 929 ms | 140 ms / **560 ms** | **1.7×** |
+| `find` (scope all) | 590 ms / 4420 ms | 530 ms / **3420 ms** | 1.3× |
+| `trail` | 170 ms / 940 ms | 160 ms / **770 ms** | 1.2× |
+| `brief` | 520 ms / 3560 ms | 520 ms / 3590 ms | — |
+| `status` | 580 ms / 4390 ms | **80 ms / 69 ms** | **63×** |
+
+Read three things off these. `trail` only moves 1.2× because it genuinely needs the Java parse
+*and* the spring parse; capability selection cannot help a command that reads everything, and the
+remaining cost there is P3/P5's. Wall time now floors out at ~70-100 ms on the trimmed commands no
+matter which caps are off, because that is the `filepath.WalkDir` cost, which no capability gates
+— the last 70 ms of every command is P3. And `status` is the whole idea in one line: it declares
+no capabilities at all, since its answer is the scan's counters, so it went from parsing 849 Java
+files three times over to 69 ms of walking.
+
+`brief` staying flat is the honest control. P2 gives it exactly the work it used to get, and it is
+the case that caught the one regression this phase introduced (an unconditionally-built symbol
+index, +6 % cpu and +39 MB RSS on the tool's most common first call), because in-process
+`BenchmarkBrief` allocates the identical 1,361,787 objects before and after.
 
 ---
 
@@ -475,15 +544,18 @@ and supporting `--compact` without any hosted round-trip.
 - Track A regression table (§4.4) stays green in CI.
 
 ## 7. Rollout, effort, non-goals
-**Status (2026-10-28): P0, P1 shipped and gated; Track A's cheap half (A0, A1, A2, A6, A7) is
+**Status (2026-10-28): P0, P1, P2 shipped and gated; Track A's cheap half (A0, A1, A2, A6, A7) is
 shipped.** Everything below is the remaining queue. A6 moved forward because it is the cheapest
 user-visible accuracy win and touches none of the graph code — it paid off, and A7 came with it.
 
-Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 → B1(deps) → P4 → B2(api) → A4 → A5 → P3/P5 → A3 → docs/bench`.
+Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → B1(deps) → P4 → B2(api) → A4 → A5 → P3/P5 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
-path from P1/P2 so they start already-fast.) Sizing: P0 S ✅ · P1 S ✅ · A0 S ✅ · A1 S ✅ ·
-A2 S–M ✅ (came in S) · A6 S ✅ · A7 S ✅ (landed with A6, but needed a second rule) · P2 M ·
+path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
+`deps` should declare its own row in `commandCaps` rather than take `CapsAll`.)
+Sizing: P0 S ✅ · P1 S ✅ · A0 S ✅ · A1 S ✅ ·
+A2 S–M ✅ (came in S) · A6 S ✅ · A7 S ✅ (landed with A6, but needed a second rule) ·
+P2 M ✅ (the code was S; the 44-case identity proof and the drift guard were the work) ·
 B1 M · P4 M · B2 M · A4 S · A5 S (half shipped via A2) · P3 M · P5 S · A3 M · docs S.
 
 Cross-cutting: shared compact formatting + certainty tiers in `internal/ir`; new usage strings;
