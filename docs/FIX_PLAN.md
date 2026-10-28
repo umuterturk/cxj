@@ -228,7 +228,7 @@ the garbage P5 attacks.
 
 ### 4.1 Measured findings (honest restatement)
 Earlier I called `trail` output "inverted." It is not. Measured on `payment-api` with the
-shipped binary:
+shipped binary *(this table is the pre-Track-A baseline; §4.4 carries the after column)*:
 
 | Command | Measured | Correct | Cause | Verdict |
 |---|---|---|---|---|
@@ -252,6 +252,8 @@ drops test files and ~99 of those collisions lived in tests. The A-RC1 root caus
 intact — `--scope all` still returns 106. Perf scoping made the *evidence* of an accuracy bug
 disappear, which is the opposite of what a faster tool should do. So A1/A2 must be verified at
 `--scope all`, not only at the new faster default, or the fix can pass while remaining broken.
+A1, A2, A6 and A7 were all checked that way; `callers` at 106 is the row still open, and it is
+open because it needs A3 rather than a stricter string.
 
 ### 4.2 Root causes (code-anchored)
 - **A-RC1 simple-name edge matching** — `index.References` via `callMatches` and
@@ -285,58 +287,89 @@ disappear, which is the opposite of what a faster tool should do. So A1/A2 must 
   the method actually has**. The substring match makes every endpoint in the repo a candidate, so
   the `trailCap` truncation then discards the correct one. Both halves come from one line, and
   the cap turns a wrong answer into a confidently wrong one.
+- **A-RC10 two private copies of the match-tier table** (found while landing A6) —
+   `index.matchRank` ranked symbol hits and `engine.rankMatch` re-ranked the merged `find`
+   output, and the two agreed only by habit. Adding `substring` to one side put every new-tier
+   hit at the default rank on the CLI, so a class named `PayHandler` sorted *below a line of
+   `demo.html`* on the real repo. Any ranking the user can see must live in `ir` once
+   (`RankMatch`/`LexicalLess`/`WantsTypeName`); a per-package copy is a latent bug that only
+   surfaces when someone extends the other one.
 
 ### 4.3 Phases (biggest, cheapest win first; red tests before behavior change)
 
-- **A0 — Fixtures + goldens (prerequisite).** Inline Java fixtures fed through
-  `java.Extractor.Extract(path, src)` (already takes bytes → no repo-wide indexing needed)
-  under `internal/index/testdata`. Encode: `handle` on many handlers; `pay` on 4 owners; a
-  package name containing `pay`; a `payService` field typed `PayService` with a
-  `payService.pay(...)` call; a `@PostMapping` method; a same-simple-name type in two packages;
-  one overload. Golden tests for `Trail/References/Callers/Callees/Search`. **Exit:** red on
-  current code for A-RC1/2/3.
-- **A1 — Drop substring fallbacks (A-RC2).** Remove the `Contains`/bare-`HasPrefix` lines in
-  `trail.go`, `spring/index.go`, `index/symbol.go`; keep exact + dot-boundary prefix/suffix.
-  **Exit:** `trail …PaymentController.pay` shows only its own route. Highest value, lowest risk.
-- **A2 — Owner-scope callees + surface ambiguity (A-RC1 callee side, A-RC3).** Add
-  `index.LookupAll`; make `resolveDef` detect >1 and mark `ambiguous`. `Callees`: for a method
-  query require `e.From ==` that fully-qualified owner (already stored as `Owner.method`); for a
-  type query, all edges owned by it (segment boundary). **Exit:** `callees …PayHandler.handle`
-  returns one file's body; ambiguous bare names are flagged.
+Status: **A0 ✅ `b145fad` · A1 ✅ `d552511` · A2 ✅ `a897b3b` · A6+A7 ✅ `480505a`**
+· A4, A3, A5 open. A5 is half-shipped: `RefReply.Ambiguous` exists and prints in both text and
+compact JSON (A2); the `(+K more)` cap marker and certainty-in-verbose are still open.
+
+- **A0 — Fixtures + goldens (prerequisite) ✅.** Inline collision-shaped Java fixtures fed
+  through `java.Extractor.Extract(path, src)` (already takes bytes → no repo-wide indexing
+  needed), in `internal/index/golden_test.go` and `internal/engine/trail_golden_test.go`.
+  Encode: `handle` on three owners; `pay` both as a method and as a substring of the package
+  `paymentapi`; two types where one name prefixes the other; a field named `handler` beside
+  `*Handler` types; a per-type test class plus a `PayoutTest` prefix collision.
+  **Deviated from the plan on purpose:** goldens landed *green* (they lock behavior that already
+  holds, which is the regression cover later phases need); each later phase lands its own
+  negative test red-then-green in the same commit. A0 also pins that `Edge.From` is the
+  fully-qualified enclosing method — A2’s callee scoping is meaningless if that changes.
+- **A1 — Drop substring fallbacks (A-RC2) ✅.** Removed the `Contains`/bare-`HasPrefix`
+  lines in `trail.symbolMatch`, `index.TestTypes`, `spring.Context`, `spring.InjectionsFor`;
+  kept exact plus dot-boundary prefix/suffix. `trail …PaymentController.pay` went from five
+  wrong routes and a missing own route to exactly `POST /v1/payments`; `trail
+  <PaymentController>` went from five foreign routes to its own five. Two over-corrections
+  surfaced on the real repo rather than in unit tests: an affix-only test-name rule dropped
+  `PaymentControllerValidationTest` (reporting a tested class as untested), and a bare prefix
+  still let `Pay` match `PayoutTest`. Both fixed and pinned as test cases.
+- **A2 — Owner-scope callees + surface ambiguity (A-RC1 callee side, A-RC3) ✅.**
+  `index.LookupAll`, `engine.resolveOwners` (resolve to a qualified owner *before* asking the
+  index — that is what keeps a precise query precise, since the matchers only fall back to
+  simple names for genuinely unqualified input), strict `fromMatches`, and `RefReply.Ambiguous`
+  listing the **full** candidate set including the symbol answered about.
+  `callees …PayHandler.handle`: 292 results across 20 files → 31 results in 1 file. `handle`
+  really is owned by 20 methods on `payment-api`, and the flag says so (names capped at 5, the
+  count always true). `callers` untouched by design.
 - **A4 — `find` source tier (A-RC5).** `mergeLexical` orders `main` before `test` (reuse
   `engine.isTestPath`), above match-kind, stable otherwise. Framed as ranking, not correctness.
-- **A3 — Receiver typing (A-RC4, A-RC1 caller side; largest, land last).** Record declared types
-  for fields/params (+ simple locals) in extraction; build a `varName→Type` scope map; when a
-  call receiver is a known name, set edge `To` to the receiver *type* (still `candidate`). Then
-  `callers C.pay` matches typed edges resolving to `C`/subtypes, falling back to name candidates
-  (labeled `candidate`) only when the type is unknown. **Exit:** `callers …PaymentController.pay`
-  drops 106 → real caller set.
+  After A7 the shared comparator owns this ordering, so A4 is one more key in `ir.LexicalLess`
+  rather than a new sort site.
+- **A3 — Receiver typing (A-RC4, A-RC1 caller side; largest, land last).** Record declared
+  types for fields/params (+ simple locals) in extraction; build a `varName→Type` scope map;
+  when a call receiver is a known name, set edge `To` to the receiver *type* (still
+  `candidate`). Then `callers C.pay` matches typed edges resolving to `C`/subtypes, falling back
+  to name candidates (labeled `candidate`) only when the type is unknown. **Exit:**
+  `callers …PaymentController.pay` drops 106 → real caller set.
 - **A5 — Honesty in presentation (A-RC3 visibility).** Print `resolved <t> (ambiguous: N)`;
   emit `… (+K more)` when a `trailCap` section is cut; show certainty in `--verbose`.
-- **A6 — Substring/camel-hump search over Java (A-RC7).** Cheapest user-visible win in the
-  whole plan; independent of the graph work. Add a `MatchSubstring` tier to `matchDef`
-  (case-insensitive substring on the simple name, camel-hump aware so `PHCtrl` →
-  `PaymentHandlerController`), ranked *below* exact/prefix/fuzzy so it can only ever fill gaps,
-  never reorder a good hit. Do not fix this by dumping Java lines into the text index — that
-  re-scans source on every query and costs the §3 budget; match on the symbol index we already
-  build. **Exit:** `find Controller` on `payment-api` returns the controller set, main-first;
-  `find PaymentController` still ranks its class first (guard test).
-- **A7 — Kind tier in `find` (A-RC8).** Land with A6, same file. For a capitalized query, types
-  rank above members; for a lowercase query, members stay eligible. Do not make this a filter —
-  `find handler` (lowercase) should still be able to reach a field. **Exit:** `find Handler` on
-  `payment-api` leads with handler *classes*, and no query's first page is exclusively test
-  fields (combined with A4's source tier).
+- **A6 — Substring/camel-hump search over Java (A-RC7) ✅.** `MatchSubstring` tier in
+  `matchDef`, ranked below exact/prefix/fuzzy so it can only fill gaps: case-insensitive
+  substring on the *simple* name — never the qualified name, which is A-RC2’s lesson applied
+  to a brand-new tier — plus camel-hump at one letter per hump. The example in the original
+  draft, `PHCtrl` → `PaymentHandlerController`, is **not implementable**: under the usual
+  hump-prefix rule, “ctrl” is not a prefix of “controller” either. `PPC` →
+  `prePaymentComplete` is what the shipped rule gives. Plain substrings need 3 letters (two
+  letters mid-word match a slice of any repo); hump queries do not. Java source was *not* added
+  to the text index, so the §3 budget holds. `find Controller`: 0 → the controller set,
+  main-first.
+- **A7 — Kind tier in `find` (A-RC8) ✅, and it needed a second rule.** Types-before-members
+  *within* a tier cannot fix `find Handler`: the private field `handler` claims `MatchExact` for
+  that query by case-insensitive equality while no class is named exactly `Handler`, so it sits
+  in a strictly better tier no within-tier preference can reach. The shipped rule also sinks
+  members whose own name starts lowercase when the query is capitalized and unqualified
+  (`ir.WantsTypeName`). Still a sink, not a filter: `find handler` leads with the field.
+  `find Handler --scope all --limit 50`: 0 classes → **50/50 classes**, no test fields.
 
 ### 4.4 Benchmark table (Track A exit criteria, from `payment-api`)
-| Metric | Before | Target |
-|---|---|---|
-| `callers …PaymentController.pay` | 106 | single digit |
-| `callees …PayHandler.handle` | 292 | ≈ method-body calls |
-| distinct files in that callees | 23 | 1 |
-| `trail …PaymentController.pay` http rows | 5 (all wrong) | 1 |
-| `find Controller` result count | 0 | main controller set, main-first |
-| `find Handler` handler classes on first page | 0 | most of the first page |
-| `callers …PaymentController.pay` at `--scope all` | 106 | single digit |
+| Metric | Before | Target | As shipped |
+|---|---|---|---|
+| `callers …PaymentController.pay` | 106 | single digit | 106 — needs A3 (untouched by A1/A2 on purpose) |
+| `callees …PayHandler.handle` | 292 | ≈ method-body calls | **31** ✅ |
+| distinct files in that callees | 23 | 1 | **1** ✅ |
+| `trail …PaymentController.pay` http rows | 5 (all wrong) | 1 | **1, its own** ✅ |
+| `find Controller` result count | 0 | main controller set, main-first | **5 controllers, main-first** ✅ |
+| `find Handler` classes on first page | 0 | most of the first page | **5/5**, and 50/50 at `--scope all --limit 50` ✅ |
+| `callers …PaymentController.pay` at `--scope all` | 106 | single digit | 106 — A3 |
+
+Every row is checked at `--scope all` as well as at the main-scope default: a narrowed default
+can make an unfixed matcher look fixed, and `callers` is the honest counterexample still open.
 
 ---
 
@@ -442,15 +475,16 @@ and supporting `--compact` without any hosted round-trip.
 - Track A regression table (§4.4) stays green in CI.
 
 ## 7. Rollout, effort, non-goals
-**Status (2026-10-28): P0 and P1 are shipped and gated.** Everything below is the remaining
-queue. A6 moved forward because it is the cheapest user-visible accuracy win and touches none
-of the graph code.
+**Status (2026-10-28): P0, P1 shipped and gated; Track A's cheap half (A0, A1, A2, A6, A7) is
+shipped.** Everything below is the remaining queue. A6 moved forward because it is the cheapest
+user-visible accuracy win and touches none of the graph code — it paid off, and A7 came with it.
 
-Suggested PR order: `P0 ✅ → P1 ✅ → A0 → A1 → A2 → A6 → P2 → B1(deps) → P4 → B2(api) → A4 → A5 → P3/P5 → A3 → docs/bench`.
+Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 → B1(deps) → P4 → B2(api) → A4 → A5 → P3/P5 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
-path from P1/P2 so they start already-fast.) Sizing: P0 S ✅ · P1 S ✅ · A0 S · A1 S ·
-A2 S–M · A6 S · P2 M · B1 M · P4 M · B2 M · A4 S · A5 S · P3 M · P5 S · A3 M · docs S.
+path from P1/P2 so they start already-fast.) Sizing: P0 S ✅ · P1 S ✅ · A0 S ✅ · A1 S ✅ ·
+A2 S–M ✅ (came in S) · A6 S ✅ · A7 S ✅ (landed with A6, but needed a second rule) · P2 M ·
+B1 M · P4 M · B2 M · A4 S · A5 S (half shipped via A2) · P3 M · P5 S · A3 M · docs S.
 
 Cross-cutting: shared compact formatting + certainty tiers in `internal/ir`; new usage strings;
 `SKILL.md`/README examples for `deps`/`api`, the `--scope` flag, and "pass qualified symbols to
