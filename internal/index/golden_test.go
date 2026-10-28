@@ -448,12 +448,20 @@ func TestMatchDefTierOrder(t *testing.T) {
 		{"OH", kind(pkgHandler + ".OrderHandler"), ir.MatchSubstring},
 	}
 	for _, c := range cases {
-		got, score := matchDef(c.q, c.def)
+		got, score := matchDef(newMatchPlan(c.q), c.def, true)
 		if got != c.wantKind {
 			t.Errorf("matchDef(%q, %s)=%s want %s", c.q, c.def.Qualified, got, c.wantKind)
 		}
 		if got != "" && score <= 0 {
 			t.Errorf("matchDef(%q, %s) scored %v", c.q, c.def.Qualified, score)
+		}
+		// P7 rewrote the matcher for cost, not behaviour, so the tier and the score
+		// have to come out of the byte-folding path exactly as they come out of the
+		// original. TestMatchDefMatchesReference is the exhaustive version.
+		legKind, legScore := matchDefLegacy(c.q, c.def)
+		if got != legKind || score != legScore {
+			t.Errorf("fast path changed the answer for %q on %s: %s/%v, legacy %s/%v",
+				c.q, c.def.Qualified, got, score, legKind, legScore)
 		}
 	}
 	if matchRank(ir.MatchSubstring) <= matchRank(ir.MatchFuzzy) {

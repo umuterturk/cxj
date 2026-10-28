@@ -16,6 +16,9 @@ type SymbolIndex struct {
 	defs  []ir.Definition
 	edges []ir.Edge
 	occs  []ir.Occurrence
+	// ascii records which definitions are pure ASCII, so ranking can choose the
+	// byte-folding matcher per definition without re-scanning the names per query.
+	ascii asciiFlags
 }
 
 // Build constructs an index from extracted file facts.
@@ -26,24 +29,33 @@ func Build(files []ir.FileFacts) *SymbolIndex {
 		idx.edges = append(idx.edges, f.Edges...)
 		idx.occs = append(idx.occs, f.Occurrences...)
 	}
+	idx.ascii = newASCIIFlags(idx.defs)
 	return idx
 }
 
 // Search finds definitions matching q, ranked by how good the match is:
 // exact, then prefix, then fuzzy, then substring/camel-hump (see substringMatch).
 // A capitalized query additionally prefers types over members (see ir.LexicalLess).
+//
+// Only the best `limit` results are kept while scanning (see topHits), which is what
+// a full workspace scan with a small limit needs; TestSearchCappedMatchesFullSort
+// holds it to the collect-everything-and-sort answer byte for byte.
 func (idx *SymbolIndex) Search(q string, limit int) []ir.SearchResult {
 	q = strings.TrimSpace(q)
 	if q == "" || limit <= 0 {
 		return nil
 	}
-	hits := make([]ir.SearchResult, 0, 32)
-	for _, d := range idx.defs {
-		m, score := matchDef(q, d)
+	p := newMatchPlan(q)
+	wantsType := ir.WantsTypeName(q)
+	top := newTopHits(limit, func(a, b ir.SearchResult) bool {
+		return ir.LexicalLess(a, b, wantsType)
+	})
+	for i, d := range idx.defs {
+		m, score := matchDef(p, d, p.ascii && idx.ascii.has(i))
 		if m == "" {
 			continue
 		}
-		hits = append(hits, ir.SearchResult{
+		top.add(ir.SearchResult{
 			Path:    d.Path,
 			Line:    d.Span.Line,
 			Symbol:  d.Qualified,
@@ -53,12 +65,7 @@ func (idx *SymbolIndex) Search(q string, limit int) []ir.SearchResult {
 			Snippet: d.Signature,
 		})
 	}
-	wantsType := ir.WantsTypeName(q)
-	sort.SliceStable(hits, func(i, j int) bool { return ir.LexicalLess(hits[i], hits[j], wantsType) })
-	if len(hits) > limit {
-		hits = hits[:limit]
-	}
-	return hits
+	return top.out()
 }
 
 // References returns uses/relations for symbol without inventing exact dispatch.
@@ -436,50 +443,10 @@ func callMatches(to, symbol, simple string) bool {
 	return false
 }
 
-func matchDef(q string, d ir.Definition) (ir.MatchKind, float64) {
-	candidates := []string{d.Qualified, d.Name}
-	if d.Owner != "" {
-		candidates = append(candidates, d.Owner+"."+d.Name)
-		if i := strings.LastIndexByte(d.Owner, '.'); i >= 0 {
-			candidates = append(candidates, d.Owner[i+1:]+"."+d.Name)
-		}
-	}
-	ql := strings.ToLower(q)
-	for _, c := range candidates {
-		if strings.EqualFold(c, q) {
-			return ir.MatchExact, 1.0
-		}
-		if strings.HasSuffix(strings.ToLower(c), "."+ql) && !strings.Contains(ql, ".") {
-			return ir.MatchExact, 0.95
-		}
-	}
-	for _, c := range candidates {
-		cl := strings.ToLower(c)
-		if strings.HasPrefix(cl, ql) {
-			return ir.MatchPrefix, float64(len(q)) / float64(len(c)+1)
-		}
-	}
-	bestDist := 99
-	for _, c := range candidates {
-		if dist, ok := fuzzyQualified(q, c); ok && dist < bestDist {
-			bestDist = dist
-		}
-	}
-	if bestDist <= maxFuzzyDistance(q) {
-		return ir.MatchFuzzy, 1.0 / float64(bestDist+2)
-	}
-	// Last resort, so a query that names the middle of a symbol still finds it:
-	// `find Controller` matched nothing at all before this tier existed, because
-	// nothing is allowed to start with "Controller". It ranks below every other
-	// tier, so it can fill a gap but never overtake a better hit.
-	if score, ok := substringMatch(q, d.Name); ok {
-		return ir.MatchSubstring, score
-	}
-	return "", 0
-}
-
-// substringMatch matches a query inside a symbol's *simple* name, by plain
-// substring or by camel humps. The simple name is the whole rule: matching the
+// substringMatch is the tier-4 rule, kept as the definition of correct for the legacy
+// path; matchDef's fast path re-implements it byte-wise in match.go.
+//
+// The simple name is the whole rule: matching the
 // qualified name here would re-create the worst bug in the tool's history, where
 // a query for `pay` hit the package `paymentapi` and matched the entire repo.
 func substringMatch(q, name string) (float64, bool) {

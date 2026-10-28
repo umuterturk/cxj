@@ -511,6 +511,59 @@ One instrument note: `b.ResetTimer()` **deletes user-reported metrics** — repo
 before it loses them silently, and the benchmark lines come out without their denominators and
 without complaining. `queryBench.reportSizes` resets first, and says why.
 
+### 3.7.1 P7 results — what shipped and what the exit criteria became
+
+All four sketch items shipped except the `name → defs` map, which the measurement made
+unnecessary: `LookupAll` was already the 40 µs / 10-alloc case, and it stays that way.
+
+- **`internal/index/match.go`.** The per-query `matchPlan` (folded query, split segments, distance
+  bound — computed once per `Search`, not per definition) and a byte-folding matcher for the ASCII
+  case. `matchDefLegacy` is the previous implementation kept verbatim in production: it is what
+  every non-ASCII definition still runs, because byte folding equals `strings.ToLower` only while
+  both sides are ASCII (ToLower expands U+0130 to `i` plus a combining dot — an ASCII byte that
+  was never in the input). Which definitions are ASCII is decided once at `Build` as a bit per
+  definition. The four spellings of a definition are compared as un-joined halves, so no
+  per-definition concatenation, splitting, or lowering survives on the hot path. For a one-word
+  query the edit distance is computed against each *distinct* trailing segment once, not once per
+  spelling, and `foldIndex` skips candidate starts with assembly `IndexByte`.
+- **Text lines are lowered once at `Build`.** `TextIndex.Search` used to call `ToLower` on every
+  line on every query; it now calls `strings.Contains` on the stored lowercase, which is exactly
+  what the old expression computed — same bytes, same answer, non-ASCII included. Cost moved from
+  per-query to a single pass per `Open` that barely registers in the gate.
+- **Hit lists are bounded during the scan, not after it** (`topHits`): insertion at the first
+  position strictly beaten, ties landing behind ties, which reproduces
+  collect-everything + `sort.SliceStable` + truncate exactly.
+
+**How "identical answers" is proven**, rather than asserted:
+
+| Test | What it pins |
+|---|---|
+| `TestMatchDefMatchesLegacy` | differential fast-vs-legacy verdict per definition, ~630k comparisons in CI (golden + synthetic fixture), ~1.06M with `CXJ_JAVA_DIR` pointing at a real repository |
+| `TestSearchPinnedRanking` | absolute expected hits/tiers/scores written into the test as literals, generated once from the pre-P7 matcher and hand-checked row by row — the guard against both matchers drifting together |
+| `TestSearchCappedMatchesFullSort` | the bounded top-k against a full collect-sort-truncate reference, limits 1/3/20, tie order included |
+| `TestNonASCIIDefinitionsTakeTheLegacyPath` | the ASCII bit flags match ground truth, and non-ASCII corpora answer exactly what the legacy matcher answers |
+| `TestFoldIndexEquivalence` | 4,000 seeded pseudo-random strings against the `ToLower`+`Index` definition — it caught a real window bug in the first `IndexByte`-skipping version |
+
+**Exit criteria, measured after (was → now, `payment-api`, 2,593 defs):**
+
+| Metric | Before | After | Criterion |
+|---|---|---|---|
+| `find` wall | 4.7–5.2 ms | **0.52–0.56 ms** | < 1 ms ✅ |
+| `find` allocations | 49k–74k | **13–21** | < 5,000 ✅ |
+| `find` bytes | 3.1–3.6 MB | 2.7–19 kB | — |
+| 20-lookup batch | 201 ms | **159.0 ms** | < 160 ms ✅ (Open alone: 141 ms) |
+
+Fixture (8,260 defs): 9.1–10.9 ms → 1.2–1.6 ms per `find`, 13–15 allocs; batch 237 → 166 ms.
+Correctness: 31 CLI invocations over `payment-api` (both scopes, text and JSON, `find`/`trail`/
+`show`/`map`/`callers`/`callees`/`references` plus two non-ASCII queries) byte-identical to the
+`4e45a80` binary. The perf gate stayed green **without** re-capturing the baseline — end-to-end CLI
+numbers are Open-dominated, so a query that got 9× cheaper moves `find`'s cpu_ms by 10 ms. That gap
+between the in-process 9× and the gated 2 % is the point of P4: the batch pays the query cost N
+times, and now it can afford to.
+
+`trail` (0.75 ms / 14k allocs) and `callees` (8.3k allocs) keep their old costs — untouched here,
+and the next obvious tenants of the same lease.
+
 ---
 
 ## 4. Track A — navigation accuracy
@@ -766,14 +819,16 @@ and supporting `--compact` without any hosted round-trip.
 - Track A regression table (§4.4) stays green in CI.
 
 ## 7. Rollout, effort, non-goals
-**Status (2026-10-28): P0, P1, P2, P5 shipped and gated; Track A's cheap half (A0, A1, A2, A6, A7)
-is shipped.** Everything below is the remaining queue. A6 moved forward because it is the cheapest
-user-visible accuracy win and touches none of the graph code — it paid off, and A7 came with it.
-P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a deletion
-rather than a redesign, and it turned out to be the largest single-phase win so far (§3.6).
+**Status (2026-10-28): P0, P1, P2, P5, P7 shipped and gated; Track A's cheap half (A0, A1, A2, A6,
+A7) is shipped.** Everything below is the remaining queue. A6 moved forward because it is the
+cheapest user-visible accuracy win and touches none of the graph code — it paid off, and A7 came
+with it. P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a
+deletion rather than a redesign, and it turned out to be the largest single-phase win so far (§3.6).
+P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× cheaper (§3.7.1) and
+is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
-Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ → B1(deps) →
-P7(query cost) → P4(batch mode) → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
+Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
+P7 ✅ → B1(deps) → P4(batch mode) → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
