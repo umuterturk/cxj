@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"example.com/cx/internal/ir"
+	"example.com/cx/internal/tshelp"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tsjava "github.com/tree-sitter/tree-sitter-java/bindings/go"
 )
@@ -163,11 +164,11 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 				}
 			case "Transactional":
 				out.Transactions = append(out.Transactions, TransactionDecl{
-					Symbol: qual, File: path, Line: lineAt(src, n.StartByte()),
+					Symbol: qual, File: path, Line: tshelp.Line(n),
 				})
 			case "SpringBootApplication":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "boot", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "boot", Symbol: qual, Path: path, Line: tshelp.Line(nameNode),
 				})
 			case "FeignClient":
 				out.HTTPClients = append(out.HTTPClients, feignClientName(a, name))
@@ -175,7 +176,7 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 				out.HTTPClients = append(out.HTTPClients, name)
 			case "ControllerAdvice", "RestControllerAdvice":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "advice", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "advice", Symbol: qual, Path: path, Line: tshelp.Line(nameNode),
 				})
 			}
 		}
@@ -184,7 +185,7 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 			switch simplifyType(impl) {
 			case "CommandLineRunner", "ApplicationRunner":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "runner", Symbol: qual, Path: path, Line: lineAt(src, nameNode.StartByte()), Detail: simplifyType(impl),
+					Kind: "runner", Symbol: qual, Path: path, Line: tshelp.Line(nameNode), Detail: simplifyType(impl),
 				})
 			}
 		}
@@ -197,7 +198,7 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 			types := append([]string{name}, ci.implements...)
 			out.Beans = append(out.Beans, Bean{
 				Name: beanName, Symbol: qual, Types: types,
-				File: path, Line: lineAt(src, nameNode.StartByte()),
+				File: path, Line: tshelp.Line(nameNode),
 			})
 		}
 
@@ -212,7 +213,7 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, class *classInfo, o
 					}
 					out.Repositories = append(out.Repositories, RepositoryRel{
 						Symbol: qual, Extends: simplifyType(ext), Entity: ent,
-						File: path, Line: lineAt(src, nameNode.StartByte()),
+						File: path, Line: tshelp.Line(nameNode),
 					})
 				}
 			}
@@ -246,7 +247,7 @@ func walkMember(n *tree_sitter.Node, src []byte, path string, class *classInfo, 
 		anns := annotationsOf(n, src)
 		if name == "main" {
 			out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-				Kind: "main", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+				Kind: "main", Symbol: symbol, Path: path, Line: tshelp.Line(nameNode),
 			})
 		}
 		for _, a := range anns {
@@ -256,44 +257,44 @@ func walkMember(n *tree_sitter.Node, src []byte, path string, class *classInfo, 
 				route := joinRoute(class.basePath, firstPath(a))
 				out.Endpoints = append(out.Endpoints, Endpoint{
 					Path: route, HTTPMethod: method, Symbol: symbol,
-					File: path, Line: lineAt(src, nameNode.StartByte()), Certainty: ir.CertaintyExact,
+					File: path, Line: tshelp.Line(nameNode), Certainty: ir.CertaintyExact,
 				})
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "http", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "http", Symbol: symbol, Path: path, Line: tshelp.Line(nameNode),
 					Detail: method + " " + route,
 				})
 			case "Transactional":
 				out.Transactions = append(out.Transactions, TransactionDecl{
-					Symbol: symbol, File: path, Line: lineAt(src, nameNode.StartByte()),
+					Symbol: symbol, File: path, Line: tshelp.Line(nameNode),
 				})
 			case "Scheduled":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "scheduled", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "scheduled", Symbol: symbol, Path: path, Line: tshelp.Line(nameNode),
 					Detail: annotationDetail(a),
 				})
 			case "KafkaListener":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "kafka", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "kafka", Symbol: symbol, Path: path, Line: tshelp.Line(nameNode),
 					Detail: annotationDetail(a),
 				})
 			case "RabbitListener":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "rabbit", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "rabbit", Symbol: symbol, Path: path, Line: tshelp.Line(nameNode),
 					Detail: annotationDetail(a),
 				})
 			case "JmsListener":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "jms", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "jms", Symbol: symbol, Path: path, Line: tshelp.Line(nameNode),
 					Detail: annotationDetail(a),
 				})
 			case "SqsListener":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "sqs", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "sqs", Symbol: symbol, Path: path, Line: tshelp.Line(nameNode),
 					Detail: annotationDetail(a),
 				})
 			case "EventListener":
 				out.Entrypoints = append(out.Entrypoints, ir.Entrypoint{
-					Kind: "event", Symbol: symbol, Path: path, Line: lineAt(src, nameNode.StartByte()),
+					Kind: "event", Symbol: symbol, Path: path, Line: tshelp.Line(nameNode),
 					Detail: annotationDetail(a),
 				})
 			}
@@ -316,7 +317,7 @@ func walkMember(n *tree_sitter.Node, src []byte, path string, class *classInfo, 
 				if typ != "" {
 					out.Injections = append(out.Injections, Injection{
 						Consumer: class.qual, Type: typ, Qualifier: qual,
-						File: path, Line: lineAt(src, p.StartByte()),
+						File: path, Line: tshelp.Line(p),
 					})
 					if isHTTPClientType(typ) {
 						if name := httpClientSystemName(qual, class.name); name != "" {
@@ -783,14 +784,4 @@ func decapitalize(s string) string {
 
 func nodeText(n *tree_sitter.Node, src []byte) string {
 	return string(src[n.StartByte():n.EndByte()])
-}
-
-func lineAt(src []byte, off uint) int {
-	line := 1
-	for i := uint(0); i < off && i < uint(len(src)); i++ {
-		if src[i] == '\n' {
-			line++
-		}
-	}
-	return line
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"example.com/cx/internal/tshelp"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tsjava "github.com/tree-sitter/tree-sitter-java/bindings/go"
 )
@@ -77,7 +78,7 @@ func walkBindings(n *tree_sitter.Node, src []byte, path, typeName string, out *[
 				}
 				*out = append(*out, Binding{
 					Key: prefix, Symbol: name, Path: path,
-					Line: lineAt(src, nameNode.StartByte()), Kind: "configuration_properties",
+					Line: tshelp.Line(nameNode), Kind: "configuration_properties",
 				})
 			case "ConditionalOnProperty":
 				p := annotationString(a, "prefix")
@@ -88,7 +89,7 @@ func walkBindings(n *tree_sitter.Node, src []byte, path, typeName string, out *[
 				}
 				*out = append(*out, Binding{
 					Key: key, Symbol: name, Path: path,
-					Line: lineAt(src, nameNode.StartByte()), Kind: "conditional_on_property",
+					Line: tshelp.Line(nameNode), Kind: "conditional_on_property",
 				})
 			}
 		}
@@ -115,11 +116,11 @@ func walkBindings(n *tree_sitter.Node, src []byte, path, typeName string, out *[
 					if prefix != "" && pname != "" {
 						*out = append(*out, Binding{
 							Key: joinKey(prefix, camelToRelaxed(pname)), Symbol: name + "." + pname,
-							Path: path, Line: lineAt(src, p.StartByte()), Kind: "configuration_properties",
+							Path: path, Line: tshelp.Line(p), Kind: "configuration_properties",
 						})
 						*out = append(*out, Binding{
 							Key: joinKey(prefix, pname), Symbol: name + "." + pname,
-							Path: path, Line: lineAt(src, p.StartByte()), Kind: "configuration_properties",
+							Path: path, Line: tshelp.Line(p), Kind: "configuration_properties",
 						})
 					}
 				}
@@ -147,7 +148,7 @@ func walkMemberBindings(n *tree_sitter.Node, src []byte, path, typeName, prefix 
 			for _, key := range placeholderKeys(raw) {
 				*out = append(*out, Binding{
 					Key: key, Symbol: typeName, Path: path,
-					Line: lineAt(src, n.StartByte()), Kind: "value",
+					Line: tshelp.Line(n), Kind: "value",
 				})
 			}
 		}
@@ -161,7 +162,7 @@ func walkMemberBindings(n *tree_sitter.Node, src []byte, path, typeName, prefix 
 					fname := nodeText(name, src)
 					*out = append(*out, Binding{
 						Key: joinKey(prefix, camelToRelaxed(fname)), Symbol: typeName + "." + fname,
-						Path: path, Line: lineAt(src, name.StartByte()), Kind: "configuration_properties",
+						Path: path, Line: tshelp.Line(name), Kind: "configuration_properties",
 					})
 				}
 			}
@@ -328,14 +329,4 @@ func firstIdent(n *tree_sitter.Node) *tree_sitter.Node {
 
 func nodeText(n *tree_sitter.Node, src []byte) string {
 	return string(src[n.StartByte():n.EndByte()])
-}
-
-func lineAt(src []byte, off uint) int {
-	line := 1
-	for i := uint(0); i < off && i < uint(len(src)); i++ {
-		if src[i] == '\n' {
-			line++
-		}
-	}
-	return line
 }

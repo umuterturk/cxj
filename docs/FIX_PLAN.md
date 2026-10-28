@@ -131,9 +131,12 @@ serial fraction — not more cores.**
 - **P-RC3 serial fraction caps scaling.** `scan.Scan` is a single-threaded `filepath.WalkDir`,
   and the post-walk accumulation + `index.Build` + `sort.SliceStable` in `mergeLexical` run
   largely serially (scan.go, engine.go). ~19% serial ⇒ ~5× ceiling regardless of core count.
-- **P-RC4 linear line-scanning.** `lineAt` (java/extract.go) rescans from byte 0 to every
-  invocation/definition; `spanOf` calls it twice. That is O(lines²) per file and is a large slice
-  of the 4.5s CPU. A per-file cumulative newline index makes each lookup O(log n) or O(1).
+- **P-RC4 linear line-scanning. ✅ fixed by P5.** `lineAt` rescanned from byte 0 for every
+  invocation/definition, and `spanOf` called it twice. Quadratic in file size, and it turned out
+  to be **36.5 % of a cold Open on a real repository** (8 % on the fixture — see §3.6). Fixed by
+  reading the row tree-sitter already computes, not by indexing newlines: three private copies of
+  `lineAt` became one `tshelp.Line`. The plan's original prescription ("a per-file cumulative
+  newline index") would have worked and was the wrong instinct: the information was already there.
 - **P-RC5 no work amortization across an agent turn.** Stateless by law, so N commands = N
   Opens. That is fixable *within* the law by batching queries in one process (§3.2 P4).
 
@@ -201,11 +204,28 @@ serial fraction — not more cores.**
   `--batch` / `--json-batch`: read many operations over stdin, `Open` **once**, answer all, exit.
   This is the agent-facing win: dozens of lookups for the price of one Open, with zero persisted
   state. **Exit:** 20 mixed lookups in one batch ≈ one Open (≤ 0.35s main-scoped), not 20×0.15s.
-- **P5 — Cheap algorithmic wins (P-RC4).** Per-file newline offset table (replace `lineAt`
-  linear scans); reuse the Tree-sitter tree between definition-walk and `walkInvocations`
-  (currently `Extract` parses once but `walk`+`walkInvocations` re-traverse — fine, but cap
-  recursion); avoid the second `spanOf` line scan. **Exit:** cpu for a full 849-file Open
-  drops ≥ 25% at `GOMAXPROCS=1` (isolates algorithmic from parallel wins).
+- **P5 — Cheap algorithmic wins (P-RC4). ✅ shipped, and the plan's prescription was wrong.**
+  The phase was written as "per-file newline offset table (replace `lineAt` linear scans)". The
+  better fix was to stop computing line numbers at all: tree-sitter already knows the row every
+  node starts on, so `tshelp.Line(n)` reads it back for the cost of one call. A newline index
+  would have been a new data structure doing work the parser had already done.
+  - Three private `lineAt` copies (java, spring, config) — the A-RC10 shape again — became one
+    helper. They did not even agree with each other: java's decoded UTF‑8 rune by rune while
+    counting newlines (byte-scanning is safe: `0x0A` is never a UTF‑8 continuation byte), the
+    other two byte-scanned. That made the slowest copy of the three also the wrongest-looking one.
+  - **Premise pinned, not assumed.** Deleting a line-number implementation is only safe if a
+    parser row *is* the line number, so `internal/java/rowparity_test.go` compares the two over
+    every node of every file — **641,176 positions across 849 real sources, plus start and end
+    rows on CRLF files, multi-byte identifiers, text blocks, a BOM and a file with no final
+    newline**. The test's oracle is a deliberately dumb newline counter that lives in the test
+    file, so it still proves something after the implementation it guards is deleted.
+  - **Exit — met at 2.5× the bar.** "cpu for a full 849-file Open drops ≥ 25% at `GOMAXPROCS=1`":
+    measured **2921 ms → 1093 ms = 2.67× (−63 %)**, single core, on `payment-api`, with
+    allocations identical to the object (1,869,699 vs 1,869,698), so it is provably less work and
+    not a GC or scheduling artifact.
+  - Not shipped from this phase's text: "reuse the Tree-sitter tree between definition-walk and
+    `walkInvocations`". They already share one `Extract` parse and one traversal, so there was
+    nothing to reuse; `walkInvocations` walks the same tree, it does not re-parse it.
 
 ### 3.3 Performance budget (CI-enforced ceilings, not aspirational)
 On the pinned repo, at `GOMAXPROCS=8`, warm cache, p95 of 10 runs:
@@ -228,7 +248,7 @@ Because cores past ~4 add CPU without wall-time benefit, prefer to cap effective
 `GOMAXPROCS=ncpu`, to avoid scheduling onto efficiency cores that add heat for no latency. Make
 this the default worker count, overridable by `--workers`/`GOMAXPROCS`.
 
-### 3.5 P0+P1+P2 results (measured after shipping, same harness)
+### 3.5 P0+P1+P2+P5 results (measured after shipping, same harness)
 
 `scripts/perf-bench.sh` median of 5, Apple M3 Pro, warm cache. `payment-api` (561 main / 849
 total java) in report-only mode:
@@ -290,6 +310,70 @@ files three times over to 69 ms of walking.
 the case that caught the one regression this phase introduced (an unconditionally-built symbol
 index, +6 % cpu and +39 MB RSS on the tool's most common first call), because in-process
 `BenchmarkBrief` allocates the identical 1,361,787 objects before and after.
+
+**P5 (line numbers read from the parser).** Gated fixture numbers, before → after, median of 5:
+
+| Fixture case | wall | cpu |
+|---|---|---|
+| `brief` | 230 → **150 ms** | 1990 → **1130 ms** (1.76×) |
+| `find --scope all` | 220 → **150 ms** | 1740 → **940 ms** (1.85×) |
+| `find` main scope | 110 → **90 ms** | 650 → **410 ms** (1.59×) |
+| `show` / `outline` | 100 → **80 ms** | 640 → **400 ms** (1.60×) |
+| `callees` main scope | 110 → **80 ms** | 670 → **390 ms** (1.72×) |
+| `trail` main scope | 130 → **100 ms** | 920 → **640 ms** (1.44×) |
+| `trail --scope all` | 270 → **190 ms** | 2430 → **1510 ms** (1.61×) |
+| `keys` / `endpoints` | 70 → **60 ms** | 320 → **270**, 350 → **290 ms** |
+
+RSS did not move (39–45 MB): this phase removes scanning, not allocation, and the allocation
+counts confirm it — `BenchmarkOpen` allocates 1,610,018 objects before and 1,610,021 after.
+
+### 3.6 What the deterministic fixture cannot see (found in P5)
+
+The same change measured **1.85× on the fixture and 3.9× on the real repository**, and the reason
+is worth writing down because it applies to every future phase.
+
+`lineAt` was **8.0 % of a cold Open on the fixture but 36.5 % on `payment-api`** — profiled the
+same way, `unicode/utf8.DecodeRune` visible underneath it in both cases (21 % of total CPU on the
+real repo, entirely inside `lineAt`). The fixture has the same *file count* as `payment-api`
+(850 vs 849 java files, which is what it was sized to) but much smaller *files*, and a
+from-byte-zero rescan is quadratic in file size. A fixture matched to a real repo by file count
+therefore under-reports any superlinear cost by roughly the ratio of average file sizes.
+
+Two consequences:
+
+- **Fixture numbers are a floor, not an estimate, for algorithmic fixes.** The gated numbers above
+  are the pessimistic ones; agents on real Spring codebases see more.
+- **Report-only real-repo runs are not optional decoration.** Every P-phase number in this
+  document is gated on the fixture, but the fixture alone would have rated P5 a 1.6× phase instead
+  of a 2.7× one. Keep running both.
+
+The clean number for the phase sidesteps the whole issue: at `GOMAXPROCS=1` over `payment-api`, a
+full Open went 2921 ms → 1093 ms. One core means no parallelism, no thermal drift and no scheduler
+in the measurement, so it is the amount of work removed and nothing else.
+
+Real-repo CLI numbers (min of 6, alternating runs so thermals hit both binaries equally):
+
+| Command | ref wall/cpu | P5 wall/cpu | cpu win |
+|---|---|---|---|
+| `find --scope all` | 520 ms / 3389 ms | 180 ms / **860 ms** | **3.9×** |
+| `find` main scope | 520 ms / 3340 ms | 180 ms / **880 ms** | **3.8×** |
+| `brief` | 520 ms / 3570 ms | 170 ms / **1020 ms** | **3.5×** |
+| `trail --scope all` | 560 ms / 3889 ms | 210 ms / **1370 ms** | **2.8×** |
+| `show` / `outline` / `callees` | 140 ms / 550 ms | 100 ms / **310–330 ms** | **1.7×** |
+| `trail` | 150 ms / 740 ms | 120 ms / **500 ms** | 1.5× |
+| `keys` / `endpoints` / `beans` / `status` | unchanged | unchanged | — |
+
+`keys`, `endpoints`, `beans` and `status` are flat, and that is the control: P5 lives in the Java,
+Spring and binding extractors, and P2 already proved those four commands do not run the Java
+extractor. A change that makes everything faster is usually making the measurement worse.
+
+Correctness: 28 invocations over `payment-api` (both scopes, text and JSON) byte-identical to the
+pre-P5 binary, which for this phase specifically means **every line number in every answer
+matched** — including `map`, which prints 1086 lines of `path:line:symbol`. One field did differ:
+`status --json`'s `go_heap_alloc_bytes`, by 7 %. That field is noise, not a result — the *same*
+binary varies 3.08–3.29 MB run to run — and the A/B harness that produced this line (an ad-hoc
+script, not a repo artifact) should zero it out instead of reporting it as a near-miss. If that
+harness is ever promoted into `scripts/`, that is the first thing to fix.
 
 ---
 
@@ -362,7 +446,9 @@ open because it needs A3 rather than a stricter string.
    hit at the default rank on the CLI, so a class named `PayHandler` sorted *below a line of
    `demo.html`* on the real repo. Any ranking the user can see must live in `ir` once
    (`RankMatch`/`LexicalLess`/`WantsTypeName`); a per-package copy is a latent bug that only
-   surfaces when someone extends the other one.
+   surfaces when someone extends the other one. Same shape, same discovery, found again in P5:
+   three private `lineAt` copies across the extractors, disagreeing with each other, one of them a
+   36 %-of-Open performance bug. `internal/tshelp` is now the single home for that helper too.
 
 ### 4.3 Phases (biggest, cheapest win first; red tests before behavior change)
 
@@ -544,11 +630,14 @@ and supporting `--compact` without any hosted round-trip.
 - Track A regression table (§4.4) stays green in CI.
 
 ## 7. Rollout, effort, non-goals
-**Status (2026-10-28): P0, P1, P2 shipped and gated; Track A's cheap half (A0, A1, A2, A6, A7) is
-shipped.** Everything below is the remaining queue. A6 moved forward because it is the cheapest
+**Status (2026-10-28): P0, P1, P2, P5 shipped and gated; Track A's cheap half (A0, A1, A2, A6, A7)
+is shipped.** Everything below is the remaining queue. A6 moved forward because it is the cheapest
 user-visible accuracy win and touches none of the graph code — it paid off, and A7 came with it.
+P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a deletion
+rather than a redesign, and it turned out to be the largest single-phase win so far (§3.6).
 
-Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → B1(deps) → P4 → B2(api) → A4 → A5 → P3/P5 → A3 → docs/bench`.
+Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ → B1(deps) →
+P4 → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
@@ -556,7 +645,16 @@ path from P1/P2 so they start already-fast — P2 extends that to *which* indexe
 Sizing: P0 S ✅ · P1 S ✅ · A0 S ✅ · A1 S ✅ ·
 A2 S–M ✅ (came in S) · A6 S ✅ · A7 S ✅ (landed with A6, but needed a second rule) ·
 P2 M ✅ (the code was S; the 44-case identity proof and the drift guard were the work) ·
-B1 M · P4 M · B2 M · A4 S · A5 S (half shipped via A2) · P3 M · P5 S · A3 M · docs S.
+P5 S ✅ (the swap was S; the 641k-position parity test was the work) ·
+B1 M · P4 M · B2 M · A4 S · A5 S (half shipped via A2) · P3 M · A3 M · docs S.
+
+**One thing P5 changes about the queue.** The fixture matched `payment-api` by file count and still
+under-reported a superlinear cost by 4.5× (§3.6), so any remaining per-file or per-query loop that
+is not linear is currently invisible in the gated numbers. Before P3, audit for the same shape:
+`lineAt`-style rescans, and linear scans over the whole bean/injection/symbol tables per query
+(`spring.Index.Beans`, `resolveOwners`, `mergeLexical`'s stable sort). A `--scope all` query on a
+large repository is the corpus that would catch these, which argues for one more report-only bench
+case at real file sizes rather than a bigger fixture.
 
 Cross-cutting: shared compact formatting + certainty tiers in `internal/ir`; new usage strings;
 `SKILL.md`/README examples for `deps`/`api`, the `--scope` flag, and "pass qualified symbols to

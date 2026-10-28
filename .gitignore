@@ -1,6 +1,9 @@
 bin/
 dist/
 .tools/
+# build/test artifacts: `go test -cpuprofile`, stray test binaries
+*.out
+*.test
 .DS_Store
 .agents/
 .claude/

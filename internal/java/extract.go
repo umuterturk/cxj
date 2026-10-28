@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"example.com/cx/internal/ir"
+	"example.com/cx/internal/tshelp"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tsjava "github.com/tree-sitter/tree-sitter-java/bindings/go"
 )
@@ -101,7 +101,7 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, scope *typeScope, f
 			Owner:     ownerQual(scope),
 			Package:   pkg,
 			Path:      path,
-			Span:      spanOf(n, src),
+			Span:      spanOf(n),
 			Certainty: ir.CertaintyExact,
 		}
 		facts.Definitions = append(facts.Definitions, def)
@@ -136,8 +136,8 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, scope *typeScope, f
 			kind = ir.SymbolConstructor
 		}
 		qual := scope.qualified + "." + name
-		full := spanOf(n, src)
-		full.Line = spanOf(nameNode, src).Line
+		full := spanOf(n)
+		full.Line = spanOf(nameNode).Line
 		facts.Definitions = append(facts.Definitions, ir.Definition{
 			Name:      name,
 			Qualified: qual,
@@ -185,7 +185,7 @@ func collectTypeHeritage(n *tree_sitter.Node, src []byte, path, qual string, fac
 					From:      qual,
 					To:        t,
 					Path:      path,
-					Span:      spanOf(c, src),
+					Span:      spanOf(c),
 					Certainty: ir.CertaintyCandidate,
 				})
 			}
@@ -214,7 +214,7 @@ func collectFields(n *tree_sitter.Node, src []byte, path, pkg string, scope *typ
 			Owner:     scope.qualified,
 			Package:   pkg,
 			Path:      path,
-			Span:      spanOf(nameNode, src),
+			Span:      spanOf(nameNode),
 			Certainty: ir.CertaintyExact,
 		})
 	}
@@ -246,7 +246,7 @@ func extractInvocation(n *tree_sitter.Node, src []byte, path, from string, facts
 		Name:     name,
 		Kind:     ir.SymbolMethod,
 		Path:     path,
-		Span:     spanOf(nameNode, src),
+		Span:     spanOf(nameNode),
 		Receiver: recv,
 	}
 	if recv != "" {
@@ -266,7 +266,7 @@ func extractInvocation(n *tree_sitter.Node, src []byte, path, from string, facts
 		From:      from,
 		To:        to,
 		Path:      path,
-		Span:      spanOf(nameNode, src),
+		Span:      spanOf(nameNode),
 		Certainty: ir.CertaintyCandidate,
 	})
 }
@@ -363,33 +363,13 @@ func simplifyType(t string) string {
 	return t
 }
 
-func spanOf(n *tree_sitter.Node, src []byte) ir.Span {
-	start := n.StartByte()
-	end := n.EndByte()
+func spanOf(n *tree_sitter.Node) ir.Span {
 	return ir.Span{
-		Line:      lineAt(src, start),
-		EndLine:   lineAt(src, end),
-		StartByte: start,
-		EndByte:   end,
+		Line:      tshelp.Line(n),
+		EndLine:   tshelp.EndLine(n),
+		StartByte: n.StartByte(),
+		EndByte:   n.EndByte(),
 	}
-}
-
-func lineAt(src []byte, byteOffset uint) int {
-	if int(byteOffset) > len(src) {
-		byteOffset = uint(len(src))
-	}
-	line := 1
-	for i := uint(0); i < byteOffset; {
-		r, size := utf8.DecodeRune(src[i:])
-		if size == 0 {
-			break
-		}
-		if r == '\n' {
-			line++
-		}
-		i += uint(size)
-	}
-	return line
 }
 
 func nodeText(n *tree_sitter.Node, src []byte) string {
