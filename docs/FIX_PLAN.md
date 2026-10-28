@@ -426,6 +426,91 @@ binary varies 3.08–3.29 MB run to run — and the A/B harness that produced th
 script, not a repo artifact) should zero it out instead of reporting it as a near-miss. If that
 harness is ever promoted into `scripts/`, that is the first thing to fix.
 
+### 3.7 The other half of the bill: what one lookup costs (audit, before P4)
+
+Track P has measured `Open` because statelessness makes it unavoidable — every command pays it.
+That also means nobody had measured the *query* half, which is the half that decides whether P4
+(batch mode) is worth building. `internal/engine/query_bench_test.go` does: one `Open` outside the
+timed region (`CapsAll`, main scope), then individual lookups and a 20-lookup batch.
+
+Per lookup, median of 10, Apple M3 Pro:
+
+| Lookup | fixture — 8260 defs / 10360 edges | `payment-api` — 2593 defs / 5963 edges |
+|---|---|---|
+| `find` (member's simple name) | 9.1 ms · 7.0 MB · 155k allocs | **4.7 ms · 3.1 MB · 49k allocs** |
+| `find` `Controller` | 10.4 ms · 8.3 MB · 222k | **5.2 ms · 3.6 MB · 74k** |
+| `find` `Service` | 10.9 ms · 8.9 MB · 240k | **5.1 ms · 3.4 MB · 74k** |
+| `trail` | 1.5 ms · 1.8 MB · 36k | 0.78 ms · 1.4 MB · 14k |
+| `callers` | 0.58 ms · 410 kB · 8.5k | 0.29 ms · 255 kB · 2.6k |
+| `callees` | 0.53 ms · 894 kB · 19k | 0.27 ms · 798 kB · 8.3k |
+| `map` | 0.32 ms · 666 kB | 0.21 ms · 369 kB |
+| resolve a name (`LookupAll`) | 0.13 ms · 117 kB · **14 allocs** | 0.043 ms · 7 kB · 10 |
+
+**A `find` costs 4.7 ms and 3.6 MB to return 20 lines.** That is 3.3 % of a full Open in time and
+5 % of its garbage, per query, and it allocates 74,000 objects to print twenty. Two structural
+reasons, both read from the source and one visible in the profile:
+
+- **There is no index.** `index.Build` concatenates facts into flat slices and keeps no maps, so
+  every query is a full pass over every definition and edge in the workspace. `callers` is the
+  worst shape: `References` scans defs for definition sites, defs again for overrides, edges for
+  call sites, and `implementors()` walks the type hierarchy to make the override pass possible —
+  four passes per lookup, deduplicated through a freshly allocated map.
+- **The ranking ladder runs in full on every definition.** `matchDef` builds up to four candidate
+  strings per def by concatenation (`Owner+"."+Name`), calls `strings.ToLower` roughly ten times
+  — including `strings.ToLower(q)`, recomputed per def — and then up to four Levenshtein passes in
+  `fuzzyQualified`. `strings.ToLower` is the top non-runtime cost in the profile (10 % of process
+  CPU). This is what the 74k allocations are: candidates and lowercase copies for defs that
+  matched nothing.
+
+The batch number is the one that changes the plan. `Open` + 20 mixed lookups on `payment-api` is
+**201 ms against 141 ms for the `Open` alone**, so the lookups add 43 % of an `Open`; on the
+fixture it is 237 ms against 125 ms, i.e. +89 %. P4's exit criterion ("20 mixed lookups in one
+batch ≈ one Open, ≤ 0.35 s main-scoped") is therefore **already reachable** — the batch is ~200 ms
+in-process plus ~10 ms startup — but a third of its cost is now the queries, and four of its
+twenty lookups are `find`, which is the expensive one.
+
+The fixture inverts here, which is worth noting next to §3.6. Sized by *file* count, it carries
+**3.2× more definitions than `payment-api`** (8260 vs 2593: 9.7 per file against 4.6), so every
+per-def cost looks worse on the fixture. Query-side fixture numbers are pessimistic, where
+`lineAt`-style Open-side numbers were optimistic. Same root cause, opposite sign: file count is
+not a workload model.
+
+Two smaller finds from the same read:
+
+- `TextIndex.Search` lowercases **every indexed text line on every query** (`strings.ToLower`
+  inside the loop over `t.lines`). Harmless at `payment-api`'s ~7k resource lines, and it grows
+  with resource files rather than code.
+- `LookupAll`, `map`, `callees` and `callers` are all sub-millisecond. The problem is specifically
+  `find`, and specifically `matchDef`'s cost for the ~99 % of definitions that will not match.
+
+**Recommended: P7 (query cost) before P4 (batch mode).** P4's premise is that a lookup is cheap
+and an `Open` is not; that premise is currently only half true, and P4 built on the flat index
+would ship a batch command whose first four lookups cost more than everything after them. P7 is
+also the same proof shape as P2 — identical answers, less work — with the added constraint that
+the A6/A7 tier ranking is user-visible, so `exact > prefix > fuzzy > substring/hump` must come out
+byte-identical, not "similarly ranked".
+
+Sketch of P7, none of it state, all of it built per `Open` and dropped at exit:
+
+- Compare without allocating: the package already has `foldByte`, so fold-aware `HasPrefix` /
+  `HasSuffix` / `Index` replace the ~ten `strings.ToLower` copies per def; hoist the folded query
+  out of the loop entirely.
+- Prune before ranking: skip `fuzzyQualified` when the length difference alone exceeds
+  `maxFuzzyDistance(q)`; do not build the four candidates until a cheap test says the def is a
+  contender.
+- Give exact-name lookups a map (`name → defs`) built at `Open`; `LookupAll` is already the cheap
+  case, which is the argument that a map is affordable.
+- Bound the hit lists before sorting: `Search` collects every match in the workspace and sorts it,
+  then truncates to 20.
+
+**Exit:** `find` on `payment-api` under 1 ms with allocations under 5000, ranking byte-identical to
+today across a fixed query battery (the tier table in `ir`, exercised at both scopes), and the
+20-lookup batch under 160 ms against its 141 ms `Open`.
+
+One instrument note: `b.ResetTimer()` **deletes user-reported metrics** — reporting corpus sizes
+before it loses them silently, and the benchmark lines come out without their denominators and
+without complaining. `queryBench.reportSizes` resets first, and says why.
+
 ---
 
 ## 4. Track A — navigation accuracy
@@ -688,7 +773,7 @@ P5 jumped the queue ahead of P3 because it was the only remaining phase whose fi
 rather than a redesign, and it turned out to be the largest single-phase win so far (§3.6).
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ → B1(deps) →
-P4 → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
+P7(query cost) → P4(batch mode) → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
@@ -706,6 +791,14 @@ is not linear is currently invisible in the gated numbers. Before P3, audit for 
 (`spring.Index.Beans`, `resolveOwners`, `mergeLexical`'s stable sort). A `--scope all` query on a
 large repository is the corpus that would catch these, which argues for one more report-only bench
 case at real file sizes rather than a bigger fixture.
+
+**Audit done (§3.7), and it reorders the queue.** `internal/engine/query_bench_test.go` measures
+lookups with `Open` outside the timed region. The scan-shaped costs are all on the query side:
+`index.Build` keeps no maps, so every lookup is a full pass over defs and edges, and `matchDef`
+runs its whole ladder — ~10 `strings.ToLower` calls and up to four Levenshtein passes — against
+every definition. A `find` costs **4.7 ms and 3.6 MB to print 20 lines**; a 20-lookup batch costs
+201 ms against a 141 ms `Open`. That is why **P7 (query cost) now precedes P4 (batch mode)**: P4's
+premise is that a lookup is cheap and an `Open` is not, and only half of that is true today.
 
 Cross-cutting: shared compact formatting + certainty tiers in `internal/ir`; new usage strings;
 `SKILL.md`/README examples for `deps`/`api`, the `--scope` flag, and "pass qualified symbols to
