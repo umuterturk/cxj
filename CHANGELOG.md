@@ -5,13 +5,19 @@ All notable changes to `cxj`. The format is loosely based on
 adheres to semantic versioning, and every entry is backed by a commit you
 can read.
 
-## [Unreleased]
+## [0.3.2] - 2026-10-29
 
 ### Added
 - Release assets for all four supported platforms on every tag
   (`cxj-macos-arm64`, `cxj-macos-x86_64`, `cxj-linux-x86_64`,
   `cxj-linux-arm64` .zip), matching the asset names `cxj update` already
   resolves. Each asset is smoke-tested on its own runner before upload.
+- Homebrew tap (`brew install umuterturk/tap/cxj`) and npm wrapper
+  (`npx @umutert/cxj`), both installing the same release binaries.
+
+### Changed
+- MIT license; module path is the real `github.com/umuterturk/cxj`, so
+  `go install` works.
 
 ## [0.3.1] - 2026-10-28
 
@@ -87,7 +93,7 @@ binary.
   `context`, `status`, `batch`, `update` — with `--scope`, `--json`,
   certainty labels, and macOS arm64 releases.
 
-[Unreleased]: https://github.com/umuterturk/cxj/compare/v0.3.1...HEAD
+[0.3.2]: https://github.com/umuterturk/cxj/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/umuterturk/cxj/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/umuterturk/cxj/compare/v0.2.3...v0.3.0
 [0.2.x]: https://github.com/umuterturk/cxj/compare/v0.1.0...v0.2.3

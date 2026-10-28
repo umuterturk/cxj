@@ -10,25 +10,37 @@ permissions:
 
 jobs:
   platform:
-    # Four assets, four real runners: cgo (tree-sitter) makes cross-compiling
-    # a maze, and GitHub's arm Linux runner is free like the x86 one. The
-    # asset names are a contract with `cxj update` (internal/update AssetName)
-    # and the Homebrew tap: macos-arm64, macos-x86_64, linux-x86_64, linux-arm64.
+    # The asset names are a contract with `cxj update` (internal/update
+    # AssetName) and the Homebrew tap: macos-arm64, macos-x86_64,
+    # linux-x86_64, linux-arm64. Linux builds on two real runners (GitHub's
+    # arm runner is free). macOS Intel has no runner left (macos-13 was
+    # retired; jobs queue forever), so the x86_64 Mac asset is cross-built
+    # on macos-14 with the SDK's universal clang — darwin→darwin is the one
+    # cgo cross-compile that just works. It cannot be executed on an arm
+    # runner (QEMU does not run Mach-O), so its smoke is the header check.
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-14
             asset: cxj-macos-arm64.zip
+            goos: darwin
+            goarch: arm64
             notes: true
-          - runner: macos-13 # Intel Macs run the amd64 build
+          - runner: macos-14
             asset: cxj-macos-x86_64.zip
+            goos: darwin
+            goarch: amd64
             notes: false
           - runner: ubuntu-24.04
             asset: cxj-linux-x86_64.zip
+            goos: linux
+            goarch: amd64
             notes: false
           - runner: ubuntu-24.04-arm
             asset: cxj-linux-arm64.zip
+            goos: linux
+            goarch: arm64
             notes: false
     runs-on: ${{ matrix.runner }}
     steps:
@@ -39,16 +51,31 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
+          if [ "$GOOS" = darwin ] && [ "$GOARCH" = amd64 ] && [ "$(uname -m)" = arm64 ]; then
+            export CC="clang -arch x86_64" # macOS SDK ships the Intel slice
+          fi
           go build -trimpath -ldflags="-s -w -X github.com/umuterturk/cxj/internal/version.Version=${GITHUB_REF_NAME}" -o dist/cxj ./cmd/cxj
           chmod +x dist/cxj
           file dist/cxj
 
       - name: Smoke
         run: |
-          ./dist/cxj version | grep -q "${GITHUB_REF_NAME}"
-          ./dist/cxj brief --root . >/dev/null
+          if [ "${{ matrix.goos }}-${{ matrix.goarch }}" = "$(go env GOOS)-$(go env GOARCH)" ]; then
+            ./dist/cxj version | grep -q "${GITHUB_REF_NAME}"
+            ./dist/cxj brief --root . >/dev/null
+          else
+            # Cross-built darwin/amd64: no x86 macOS runner and QEMU cannot
+            # execute Mach-O, so the strongest available check is the binary
+            # header itself. Behavior parity rests on the identical source,
+            # toolchain, and the native jobs' suite.
+            file dist/cxj | grep -q "x86_64"
+            echo "::notice::cross-built asset: static check only (no Intel macOS runner exists)"
+          fi
 
       - name: Package
         run: |
