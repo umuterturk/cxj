@@ -38,7 +38,7 @@ fs.mkdirSync(dest, { recursive: true });
 
 function get(u, file, redirects, done) {
   if (redirects > 5) return done(new Error("too many redirects: " + u));
-  https.get(u, { headers: { "User-Agent": "@umuterturk/cxj installer" } }, (res) => {
+  https.get(u, { headers: { "User-Agent": "@umutert/cxj installer" } }, (res) => {
     if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
       res.resume();
       return get(res.headers.location, file, redirects + 1, done);

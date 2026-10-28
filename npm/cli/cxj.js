@@ -9,7 +9,7 @@ const binary = path.join(__dirname, "..", "native", "cxj");
 if (!fs.existsSync(binary)) {
   console.error(
     "cxj: platform binary missing — postinstall did not complete.\n" +
-      "Re-run: npm rebuild @umuterturk/cxj"
+      "Re-run: npm rebuild @umutert/cxj"
   );
   process.exit(1);
 }

@@ -1,4 +1,4 @@
-# @umuterturk/cxj
+# @umutert/cxj
 
 npm wrapper for [cxj](https://github.com/umuterturk/cxj) — stateless
 Java/Spring code intelligence for coding agents. `postinstall` downloads the
@@ -6,7 +6,7 @@ official GitHub Release binary for your platform (macOS/Linux, arm64/x86_64);
 there is no build step and no npm dependency tree.
 
 ```sh
-npm install -g @umuterturk/cxj
+npm install -g @umutert/cxj
 cxj brief                # in a Java/Spring repo
 cxj install -g           # write the agent skill to ~/.agents/skills/cxj
 ```
@@ -14,7 +14,7 @@ cxj install -g           # write the agent skill to ~/.agents/skills/cxj
 Or without installing, one-off:
 
 ```sh
-npx @umuterturk/cxj brief
+npx @umutert/cxj brief
 ```
 
 ## How it maps to releases
