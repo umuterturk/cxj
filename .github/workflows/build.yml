@@ -37,12 +37,11 @@ jobs:
   # deterministic fixture, never on a real repository.
   perf:
     runs-on: macos-14
-    # pull-requests: write is what the commit-comment endpoint asks for. It is scoped to
-    # this job only, and the comment step is continue-on-error so a permissions surprise
-    # can never mask the gate verdict below.
+    # contents: write is what POST /commits/{sha}/comments asks for under the
+    # GITHUB_TOKEN. It is scoped to this job only, and the comment step is
+    # continue-on-error so a permissions surprise can never mask the gate verdict below.
     permissions:
-      contents: read
-      pull-requests: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -102,15 +101,28 @@ jobs:
             // API returns a bare list. Both shapes are accepted rather than picked, because
             // whichever way it changes the failure would be silent-ish: an object-only read
             // throws on a list, a list-only read silently finds nothing and double-posts.
-            const { data } = await github.rest.repos.listCommentsForCommit({
-              owner, repo, commit_sha: sha, per_page: 100,
-            })
-            const all = Array.isArray(data) ? data : (data && data.comments) || []
-            const existing = all.filter((c) => c.body.includes(marker))
-            if (existing.length) {
-              await github.rest.repos.updateCommitComment({ owner, repo, comment_id: existing[0].id, body: comment })
-            } else {
-              await github.rest.repos.createCommitComment({ owner, repo, commit_sha: sha, body: comment })
+            // This whole step is continue-on-error, so a failure here is invisible in the
+            // step list; the one place it must always surface is the step summary, which
+            // the gate policy makes the human-facing verdict surface.
+            try {
+              const { data } = await github.rest.repos.listCommentsForCommit({
+                owner, repo, commit_sha: sha, per_page: 100,
+              })
+              const all = Array.isArray(data) ? data : (data && data.comments) || []
+              const existing = all.filter((c) => c.body.includes(marker))
+              if (existing.length) {
+                await github.rest.repos.updateCommitComment({ owner, repo, comment_id: existing[0].id, body: comment })
+              } else {
+                await github.rest.repos.createCommitComment({ owner, repo, commit_sha: sha, body: comment })
+              }
+            } catch (e) {
+              core.warning(`perf comment not posted: ${e.message}`)
+              require('fs').appendFileSync(
+                process.env.GITHUB_STEP_SUMMARY,
+                `> Perf comment not posted: ${e.message}\n\n` +
+                  `> The table above is the same data; this only removes the public-API copy.\n`,
+              )
+              throw e
             }
 
       - name: Fail on the gate verdict
