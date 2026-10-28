@@ -329,6 +329,11 @@ func StaticExamples(cmd string) []Example {
 			{Cmd: "cxj deps jackson", Why: "one library's real version, declared or transitive"},
 			{Cmd: "cxj deps --tier managed", Why: "versions a BOM or catalog controls, not your file"},
 		}
+	case "batch":
+		return []Example{
+			{Cmd: `printf '{"cmd":"find","arg":"Order"}\n{"cmd":"trail","arg":"com.acme.OrderService.save"}\n' | cxj batch`, Why: "many lookups, one Open"},
+			{Cmd: `printf '{"cmd":"status"}\n' | cxj batch --scope all`, Why: "one query through the same interface; summary line shows open_ms"},
+		}
 	case "update":
 		return []Example{
 			{Cmd: "cxj update --check", Why: "compare to the latest GitHub release"},

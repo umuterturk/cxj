@@ -200,12 +200,18 @@ serial fraction — not more cores.**
   pre-size and parallelize sort where order-independent. Target serial < 8% ⇒ ~9× on 12 cores,
   but the real goal is lower wall at GOMAXPROCS=4 (typical ultrabook) and lower CPU at all sizes.
 - **P4 — Batched queries in one process (P-RC5, still stateless). ✅ approved as no-state-legal,
-  deferred.** Ruled in-law by the maintainer on 2026-10-28: one process that opens once, answers
-  many stdin queries, persists nothing, exits. Not built yet (out of the P0+P1 scope).
-  `cxj query -` /
-  `--batch` / `--json-batch`: read many operations over stdin, `Open` **once**, answer all, exit.
-  This is the agent-facing win: dozens of lookups for the price of one Open, with zero persisted
-  state. **Exit:** 20 mixed lookups in one batch ≈ one Open (≤ 0.35s main-scoped), not 20×0.15s.
+  shipped 2026-10-28 as `cxj batch`.** One process opens once, answers many stdin queries, persists
+  nothing, exits. JSONL in (`{"cmd":"find","arg":"Order"}` per line), JSONL out in request order,
+  plus a summary line whose `open_ms` beside `wall_ms` is the amortization made visible. Reading
+  stdin *before* opening lets the batch union `CapsFor` of its members — the P2 trick per batch.
+  Scope is one batch-level decision (the snapshot cannot be scoped per line); it defaults to the
+  breadth of the widest member so batch answers never silently differ from standalone — and they
+  do not: every batch answer is byte-identical to the command's own `--json`.
+  - **Exit — met at 2.2× the bar.** 20 mixed lookups (show/outline/trail/callers/callees/
+    references/endpoints/keys/config/status) on `payment-api`: **150–160 ms wall** vs the ≤ 350 ms
+    target and ≈ 3 s for twenty separate invocations. The summary's split — `open_ms` 148 of
+    `wall_ms` 160 — says 92 % of a batch is now the thing only an Open can do; the queries
+    themselves cost 12 ms total, which is P7 paying P4 back.
 - **P5 — Cheap algorithmic wins (P-RC4). ✅ shipped, and the plan's prescription was wrong.**
   The phase was written as "per-file newline offset table (replace `lineAt` linear scans)". The
   better fix was to stop computing line numbers at all: tree-sitter already knows the row every
@@ -850,8 +856,9 @@ and supporting `--compact` without any hosted round-trip.
 - Track A regression table (§4.4) stays green in CI.
 
 ## 7. Rollout, effort, non-goals
-**Status (2026-10-28): P0, P1, P2, P5, P7 shipped and gated; Track A's cheap half (A0, A1, A2, A6,
-A7) and B1 (`deps`, §5.1.1) are shipped.** Everything below is the remaining queue. A6 moved forward because it is the
+**Status (2026-10-28): P0, P1, P2, P4, P5, P7 shipped and gated; Track A's cheap half (A0, A1, A2,
+A6, A7) and B1 (`deps`, §5.1.1) are shipped.** Everything below is the remaining queue. A6 moved
+forward because it is the
 cheapest user-visible accuracy win and touches none of the graph code — it paid off, and A7 came
 with it. P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a
 deletion rather than a redesign, and it turned out to be the largest single-phase win so far (§3.6).
@@ -859,7 +866,7 @@ P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× c
 is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
-P7 ✅ → B1(deps) ✅ → P4(batch mode) → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
+P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so

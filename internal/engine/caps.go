@@ -122,6 +122,10 @@ var commandCaps = map[string]Capabilities{
 	// decision where every other command's cost is decided, so CapsFor("deps")
 	// is a stated intent and never a CapsAll accident — FIX_PLAN §7.
 	"deps": 0,
+	// batch opens a snapshot too, but picks its own capability set by unioning
+	// CapsFor of every command in the batch — the row exists so CapsFor("batch")
+	// is never a CapsAll accident for anyone who consults it.
+	"batch": 0,
 }
 
 // fileWork is the per-file slice of that plan. Resolving to zero is the cheap

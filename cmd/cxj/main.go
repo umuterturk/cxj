@@ -57,6 +57,8 @@ func main() {
 		os.Exit(runStatus(os.Args[2:]))
 	case "deps":
 		os.Exit(runDeps(os.Args[2:]))
+	case "batch":
+		os.Exit(runBatch(os.Args[2:]))
 	case "ask":
 		os.Exit(runAsk(os.Args[2:]))
 	case "install":
@@ -94,6 +96,7 @@ func usage() {
   cxj context --symbol Qualified.name [--budget 500] [--root PATH]
   cxj status [--root PATH] [--json]
   cxj deps [FILTER] [--root PATH] [--tier declared|resolved|managed|cached|unknown] [--limit 40] [--m2 DIR] [--gradle DIR] [--cache DIR] [--json]
+  cxj batch [--root PATH] [--scope all|main|test]   # JSONL queries on stdin, ONE Open for all
   cxj ask QUESTION [--root PATH] [--download] [--show-command] [--verbose] [--json]
   cxj install               # project: .agents/skills + .claude/skills symlink
   cxj install -g            # global: ~/.agents/skills + symlink; /usr/local/bin/cxj
