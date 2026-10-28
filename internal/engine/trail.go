@@ -63,7 +63,7 @@ func (e *Engine) Trail(symbol string) ir.TrailReply {
 			Path: ed.Path, Line: ed.Span.Line, Symbol: ed.From, Detail: ed.Kind, Certainty: string(ed.Certainty),
 		})
 	}
-	for _, td := range e.syms.TestTypes(d.Name) {
+	for _, td := range e.syms.TestTypes(ownerTypeName(d)) {
 		if td.Qualified == d.Qualified {
 			continue
 		}
@@ -91,8 +91,26 @@ func symbolMatch(got, qualified, simple string) bool {
 	if got == qualified || got == simple {
 		return true
 	}
-	if strings.HasPrefix(got, qualified+".") || strings.HasSuffix(got, "."+simple) {
-		return true
+	// Dot-boundary only. A bare Contains fallback was the single worst source of
+	// wrong `trail` output: querying ...PaymentController.pay matched every
+	// endpoint in the package, because the package is named `paymentapi` and that
+	// contains `pay`. It also made the correct route disappear, since every
+	// endpoint became a candidate and the trail cap then truncated the real one.
+	return strings.HasPrefix(got, qualified+".") || strings.HasSuffix(got, "."+simple)
+}
+
+// ownerTypeName returns the simple name of the type a definition belongs to, so
+// the tests section asks "what covers this class" instead of "what type name
+// contains this method name".
+func ownerTypeName(d ir.Definition) string {
+	switch d.Kind {
+	case ir.SymbolMethod, ir.SymbolConstructor, ir.SymbolField:
+		if d.Owner != "" {
+			if i := strings.LastIndexByte(d.Owner, '.'); i >= 0 {
+				return d.Owner[i+1:]
+			}
+			return d.Owner
+		}
 	}
-	return strings.Contains(got, simple)
+	return d.Name
 }

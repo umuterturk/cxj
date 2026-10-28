@@ -290,3 +290,35 @@ func TestSearchPrefixIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// TestTestTypeMatches covers the naming rules for "which class tests this one".
+// The false negative here is as bad as the false positive: an earlier version
+// accepted only TTest and silently dropped PaymentControllerValidationTest, which
+// made `trail` report a controller as untested when it is not.
+func TestTestTypeMatches(t *testing.T) {
+	cases := []struct {
+		candidate, typeName string
+		want                bool
+	}{
+		{"PaymentControllerTest", "PaymentController", true},
+		{"PaymentControllerValidationTest", "PaymentController", true},
+		{"PaymentControllerIntegrationTest", "PaymentController", true},
+		{"PaymentControllerIT", "PaymentController", true},
+		{"PaymentControllerSpec", "PaymentController", true},
+		{"TestPaymentController", "PaymentController", true},
+		{"PaymentController", "PaymentController", true},
+		// A shared prefix or substring is not a test of the class.
+		{"PayoutTest", "PaymentController", false},
+		{"PayoutTest", "Pay", false},
+		{"PaymentApiSmokeTest", "Pay", false},
+		// Accepted soft overlap: an adjacent class's test also reads as a test of
+		// a very short type name. The tests section is a capped hint, not a claim.
+		{"PayHandlerTest", "Pay", true},
+		{"ShippingHandlerTest", "PaymentController", false},
+	}
+	for _, c := range cases {
+		if got := testTypeMatches(c.candidate, c.typeName); got != c.want {
+			t.Errorf("testTypeMatches(%q, %q)=%v want %v", c.candidate, c.typeName, got, c.want)
+		}
+	}
+}

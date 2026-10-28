@@ -117,6 +117,15 @@ public class PayoutTest {
     public void checks() { }
 }
 `,
+		// Qualified test names are the common convention in real Spring repos
+		// (payment-api has PaymentControllerValidationTest, not PaymentControllerTest).
+		// An over-strict matcher reports the class as untested, which is its own bug.
+		"src/test/java/com/example/paymentapi/PaymentControllerValidationTest.java": `package com.example.paymentapi;
+
+public class PaymentControllerValidationTest {
+    public void rejects() { }
+}
+`,
 	}
 }
 
@@ -199,6 +208,75 @@ func TestTrailInjectsAreTheOwnersOwnFields(t *testing.T) {
 	for _, h := range hits {
 		if !strings.HasSuffix(h.Path, "PaymentController.java") {
 			t.Errorf("injection outside the type: %s %s", h.Path, h.Symbol)
+		}
+	}
+}
+
+// --- A1: substring fallbacks -------------------------------------------------
+//
+// These are the negative halves of the contract above. They are the failure the
+// bug report was actually about: `trail …PaymentController.pay` on payment-api
+// listed five routes owned by other classes because the matcher fell back to
+// Contains, and `paymentapi` contains `pay`.
+
+// TestTrailHTTPOnlyShowsOwnRoutes: every http row on a method's card must be a
+// route that method or its own class actually declares.
+func TestTrailHTTPOnlyShowsOwnRoutes(t *testing.T) {
+	eng := openTrailEngine(t)
+	hits := eng.Trail(trailPayCtrl + ".pay").HTTP
+	for _, h := range hits {
+		if h.Symbol != trailPayCtrl+".pay" && !strings.HasPrefix(h.Symbol, trailPayCtrl+".") {
+			t.Errorf("http row belongs to another class: %s (%s)", h.Symbol, h.Detail)
+		}
+	}
+}
+
+// TestTrailHTTPForATypeShowsOnlyItsOwnRoutes, same rule for a type query: a
+// controller's card lists its routes, not every route in the package.
+func TestTrailHTTPForATypeShowsOnlyItsOwnRoutes(t *testing.T) {
+	eng := openTrailEngine(t)
+	for _, h := range eng.Trail(trailPayCtrl).HTTP {
+		if !strings.HasPrefix(h.Symbol, trailPayCtrl+".") {
+			t.Errorf("type card shows a route it does not own: %s (%s)", h.Symbol, h.Detail)
+		}
+	}
+}
+
+// TestTrailTestsMatchTheOwnerType: the tests section is "what covers this class".
+// Asking about the `pay` *method* must not drag in every type whose name merely
+// contains "pay" — PayoutTest shares a prefix with the package, not with the class.
+func TestTrailTestsMatchTheOwnerType(t *testing.T) {
+	eng, err := Open(writeTree(t, trailFiles()), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits := eng.Trail(trailPayCtrl + ".pay").Tests
+	syms := strings.Join(hitSymbols(hits), " ")
+	if !strings.Contains(syms, "PaymentControllerTest") {
+		t.Errorf("tests section missed the class's own test: %v", hitSymbols(hits))
+	}
+	if !strings.Contains(syms, "PaymentControllerValidationTest") {
+		t.Errorf("tests section dropped a qualified test name: %v", hitSymbols(hits))
+	}
+	if strings.Contains(syms, "PayoutTest") {
+		t.Errorf("tests section matched PayoutTest by substring: %v", hitSymbols(hits))
+	}
+}
+
+// TestContextDoesNotMatchPackageSubstring: `context pay` must answer about a
+// symbol named pay, not about everything under com.example.paymentapi.
+func TestContextDoesNotMatchPackageSubstring(t *testing.T) {
+	eng := openTrailEngine(t)
+	raw := eng.Context("pay", 50)
+	ctx, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected context shape %T", raw)
+	}
+	locations, _ := ctx["locations"].([]map[string]any)
+	for _, loc := range locations {
+		p, _ := loc["path"].(string)
+		if strings.Contains(p, "BackofficePaymentController") {
+			t.Errorf("context matched an unrelated class through the package name: %v", loc)
 		}
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"example.com/cx/internal/ir"
 )
@@ -255,11 +257,14 @@ func (idx *SymbolIndex) Heritage(symbol string) (supers, subtypes []ir.Edge) {
 	return supers, subtypes
 }
 
-// TestTypes returns type definitions in test files that mention symbol.
-func (idx *SymbolIndex) TestTypes(symbol string) []ir.Definition {
-	simple := symbol
-	if i := strings.LastIndexByte(symbol, '.'); i >= 0 {
-		simple = symbol[i+1:]
+// TestTypes returns type definitions in test files that cover a type, matched by
+// type name (PaymentController -> PaymentControllerTest), never by substring.
+// Callers must pass a *type* name: handing it a method name used to drag in every
+// class whose name merely contained it.
+func (idx *SymbolIndex) TestTypes(typeName string) []ir.Definition {
+	typeName = strings.TrimSpace(typeName)
+	if typeName == "" {
+		return nil
 	}
 	var out []ir.Definition
 	for _, d := range idx.defs {
@@ -271,11 +276,51 @@ func (idx *SymbolIndex) TestTypes(symbol string) []ir.Definition {
 		if !isTestFile(d.Path) {
 			continue
 		}
-		if d.Name == simple || strings.Contains(d.Name, simple) || strings.Contains(d.Qualified, simple) {
+		if testTypeMatches(d.Name, typeName) {
 			out = append(out, d)
 		}
 	}
 	return out
+}
+
+// testTypeMatches accepts the naming conventions that actually exist: a test class
+// for T is T<qualifier>Test (PaymentControllerTest, PaymentControllerValidationTest),
+// or TestT. Two rules do the work:
+//
+//   - camel-hump boundary after the type name, so `Pay` matches PayTest but not
+//     PayoutTest — "out" continues the same word rather than starting a new one.
+//     Without this, a short type name re-acquires exactly the substring bug A1
+//     removed.
+//   - the candidate must actually look like a test (ends Test/Tests/IT/Spec), so a
+//     plain collaborator named PaymentControllerFactory is not a test of it.
+//
+// Accepted soft overlap: `PayHandlerTest` also matches a type literally named `Pay`.
+// The tests section is a capped hint, not a claim, so this errs toward showing
+// something adjacent. Pinning it here so the tradeoff stays visible.
+func testTypeMatches(candidate, typeName string) bool {
+	if candidate == "" || typeName == "" {
+		return false
+	}
+	if candidate == typeName {
+		return true
+	}
+	testish := func(s string) bool {
+		return strings.HasSuffix(s, "Test") || strings.HasSuffix(s, "Tests") ||
+			strings.HasSuffix(s, "IT") || strings.HasSuffix(s, "Spec")
+	}
+	if strings.HasPrefix(candidate, typeName) && testish(candidate) {
+		rest := candidate[len(typeName):]
+		if rest == "" {
+			return true
+		}
+		r, _ := utf8.DecodeRuneInString(rest)
+		return unicode.IsUpper(r)
+	}
+	// TestPaymentController
+	if strings.HasPrefix(candidate, "Test") && strings.HasSuffix(candidate, typeName) && candidate != typeName {
+		return true
+	}
+	return false
 }
 
 func isTestFile(p string) bool {

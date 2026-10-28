@@ -180,8 +180,10 @@ func (idx *Index) InjectionsFor(symbol string) []Injection {
 	simple := simpleName(symbol)
 	var out []Injection
 	for _, in := range idx.injections {
+		// Dot-boundary prefix only: a bare HasPrefix let a query match a package
+		// or a partially-typed name and report unrelated consumers as injections.
 		if in.Consumer == symbol || simpleName(in.Consumer) == simple ||
-			strings.HasSuffix(in.Consumer, "."+simple) || strings.HasPrefix(in.Consumer, symbol) {
+			strings.HasSuffix(in.Consumer, "."+simple) || strings.HasPrefix(in.Consumer, symbol+".") {
 			out = append(out, in)
 		}
 	}
@@ -332,7 +334,7 @@ func (idx *Index) Context(symbol string, budget int) map[string]any {
 	}
 
 	for _, e := range idx.endpoints {
-		if e.Symbol == symbol || strings.HasSuffix(e.Symbol, "."+symbol) || strings.Contains(e.Symbol, symbol) {
+		if e.Symbol == symbol || strings.HasSuffix(e.Symbol, "."+symbol) || strings.HasSuffix(e.Symbol, "."+simpleName(symbol)) {
 			locations = append(locations, map[string]any{"path": e.File, "line": e.Line, "kind": "endpoint"})
 			addRel("http_mapping", e.HTTPMethod+" "+e.Path, map[string]any{"certainty": "exact"})
 			certainty = string(ir.CertaintyExact)
