@@ -55,6 +55,8 @@ func main() {
 		os.Exit(runContext(os.Args[2:]))
 	case "status":
 		os.Exit(runStatus(os.Args[2:]))
+	case "deps":
+		os.Exit(runDeps(os.Args[2:]))
 	case "ask":
 		os.Exit(runAsk(os.Args[2:]))
 	case "install":
@@ -91,6 +93,7 @@ func usage() {
   cxj config --key a.b.c [--profile prod] [--root PATH] [--json]
   cxj context --symbol Qualified.name [--budget 500] [--root PATH]
   cxj status [--root PATH] [--json]
+  cxj deps [FILTER] [--root PATH] [--tier declared|resolved|managed|cached|unknown] [--limit 40] [--m2 DIR] [--gradle DIR] [--cache DIR] [--json]
   cxj ask QUESTION [--root PATH] [--download] [--show-command] [--verbose] [--json]
   cxj install               # project: .agents/skills + .claude/skills symlink
   cxj install -g            # global: ~/.agents/skills + symlink; /usr/local/bin/cxj
@@ -779,6 +782,82 @@ func runStatus(args []string) int {
 		return failOpen(err)
 	}
 	return cli.NewPrinter().Status(eng.Status(), *c.asJSON)
+}
+
+// runDeps answers "which version am I actually on". It never opens a workspace
+// snapshot: a repo has a handful of build files, and engine.Open would read 850
+// of everything to answer a question about a dozen. That is also why the tier
+// ladder includes `unknown` — cxj reads, it does not resolve.
+func runDeps(args []string) int {
+	fs := flag.NewFlagSet("deps", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	root := fs.String("root", "", "workspace root (default: current directory)")
+	asJSON := fs.Bool("json", false, "emit JSON")
+	limit := fs.Int("limit", engine.DefaultDepsLimit, "max rows (1-500)")
+	tier := fs.String("tier", "", "tier filter: declared|resolved|managed|cached|unknown")
+	m2 := fs.String("m2", "", "local Maven repository (default ~/.m2/repository)")
+	gradle := fs.String("gradle", "", "local Gradle cache (default ~/.gradle/caches/modules-2)")
+	cache := fs.String("cache", "", "base directory holding repository/ and modules-2/ (overridden by --m2/--gradle)")
+	example := fs.Bool("example", false, "print examples and exit")
+	fs.Bool("compact", false, "accepted for consistency; deps has no verbose form")
+	fs.Bool("verbose", false, "accepted for consistency; deps has no verbose form")
+	fs.String("scope", "", "accepted for consistency; deps has no source scope")
+	fs.Var(new(multiFlag), "exclude", "accepted for consistency; unused")
+	flagArgs, positional, err := cli.SplitArgs(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 2
+	}
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	if *example {
+		return printStaticExamples("deps")
+	}
+	r := strings.TrimSpace(*root)
+	if r == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			return 1
+		}
+		r = wd
+	}
+	if err := scan.ValidateRoot(r); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 2
+	}
+	opts := engine.DepsOptions{
+		Root:        r,
+		Filter:      strings.Join(positional, " "),
+		Tier:        strings.TrimSpace(*tier),
+		Limit:       *limit,
+		M2Dir:       strings.TrimSpace(*m2),
+		GradleCache: strings.TrimSpace(*gradle),
+	}
+	if base := strings.TrimSpace(*cache); base != "" {
+		// --cache is the shorthand; explicit flags still win. The subdirectory
+		// names are the standard layouts, so a backup of a home dir works as-is.
+		if opts.M2Dir == "" {
+			opts.M2Dir = filepath.Join(base, "repository")
+		}
+		if opts.GradleCache == "" {
+			opts.GradleCache = filepath.Join(base, "modules-2")
+		}
+	}
+	switch strings.ToLower(opts.Tier) {
+	case "", ir.DepDeclared, ir.DepResolved, ir.DepManaged, ir.DepCached, ir.DepUnknown:
+	default:
+		fmt.Fprintf(os.Stderr, "unknown tier %q (want declared|resolved|managed|cached|unknown)\n", opts.Tier)
+		return 2
+	}
+	opts.Tier = strings.ToLower(opts.Tier)
+	reply, err := engine.Deps(opts)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 1
+	}
+	return cli.NewPrinter().Deps(reply, cli.Mode{JSON: *asJSON})
 }
 
 type multiFlag []string

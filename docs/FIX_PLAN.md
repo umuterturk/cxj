@@ -762,6 +762,37 @@ trust their crawl; cxj derives it from your build + cache, reproducibly, offline
 consumes it.
 **No-state:** reads build files + a user-owned cache read-only; writes nothing.
 
+#### 5.1.1 B1 results — what shipped
+
+All of it, with the tier ladder widened to five rungs once the lockfile earned its own:
+`declared / resolved / managed / cached / unknown`. `deps` opens **no engine snapshot** — a repo's
+dozen build files do not justify an 850-file scan — and declares `"deps": 0` in `commandCaps`
+as the stated intent §7 asked for. Everything lives in `internal/engine/deps.go` (~700 lines),
+`internal/ir/deps.go`, one printer method, and `runDeps`.
+
+Real-repo work on `payment-api` changed the design twice:
+
+- Gradle's `$var` versions are resolved from `gradle.properties` **and from `name = "value"`
+  lines in the same build file** — the `springCloudVersion = "2025.1.2"` spelling is how BOMs
+  are actually written. An unresolvable placeholder stays `unknown` showing the raw expression:
+  a row that shows `$fooVersion` is diagnosable, a blank one is not.
+- A cache bump replaces the now-false "no version found" note instead of stacking next to it,
+  and dynamic lockfile pins (`5.+`) are reported as unknown-with-a-pin-note, never as versions.
+
+Lockfiles answer transitives only under a filter (`deps jackson` reaches `dependencies.lock`
+for what no build file declares); unfiltered they would bury the rows the user maintains.
+Cache evidence is directory listing plus one look for a `.jar`, never a write.
+
+Measured on `payment-api` (real `~/.m2` and Gradle caches): full answer in **12 ms wall, ~0 ms
+cpu**. `TestDeps*` covers the plan's exit list — property substitution, declared vs managed,
+cached cross-check both layouts, ambiguous → refuses to pick, unresolved → unknown, lockfile
+outranks the build file while citing it — and the phase is **purely additive**: the 31-command
+identity battery against `4e45a80` stayed byte-identical and the perf gate stayed green with
+the baseline untouched.
+
+Not built (documented gaps, honest tier carries them): remote BOM contents (needs network),
+Gradle settings-level catalog declarations, npm lockfiles.
+
 ### 5.2 Feature 2 — `cxj api DEP [Type|member]` : your-version API + your usage
 "What's the real API of this dependency **for my version**, and how does my repo already use
 it?" — the Context7-killer, from disk.
@@ -820,7 +851,7 @@ and supporting `--compact` without any hosted round-trip.
 
 ## 7. Rollout, effort, non-goals
 **Status (2026-10-28): P0, P1, P2, P5, P7 shipped and gated; Track A's cheap half (A0, A1, A2, A6,
-A7) is shipped.** Everything below is the remaining queue. A6 moved forward because it is the
+A7) and B1 (`deps`, §5.1.1) are shipped.** Everything below is the remaining queue. A6 moved forward because it is the
 cheapest user-visible accuracy win and touches none of the graph code — it paid off, and A7 came
 with it. P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a
 deletion rather than a redesign, and it turned out to be the largest single-phase win so far (§3.6).
@@ -828,7 +859,7 @@ P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× c
 is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
-P7 ✅ → B1(deps) → P4(batch mode) → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
+P7 ✅ → B1(deps) ✅ → P4(batch mode) → B2(api) → A4 → A5 → P3 → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so

@@ -323,6 +323,12 @@ func StaticExamples(cmd string) []Example {
 		}
 	case "version":
 		return []Example{{Cmd: "cxj version", Why: "print the installed cxj version"}}
+	case "deps":
+		return []Example{
+			{Cmd: "cxj deps", Why: "every dependency with the version cxj could establish and its tier"},
+			{Cmd: "cxj deps jackson", Why: "one library's real version, declared or transitive"},
+			{Cmd: "cxj deps --tier managed", Why: "versions a BOM or catalog controls, not your file"},
+		}
 	case "update":
 		return []Example{
 			{Cmd: "cxj update --check", Why: "compare to the latest GitHub release"},

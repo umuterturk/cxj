@@ -287,6 +287,54 @@ func (p *Printer) Keys(reply ir.KeysReply, m Mode) int {
 	return 0
 }
 
+// Deps writes the dependency table: coordinate, version, how the version was
+// learned, and where it is declared. The "+N more" line matters as much here as
+// it does in trail: without it, a cap and an end of data look identical.
+func (p *Printer) Deps(reply ir.DepsReply, m Mode) int {
+	if m.JSON {
+		return p.JSON(reply)
+	}
+	if reply.Files == 0 {
+		fmt.Fprintln(p.Out, "no build files (pom.xml, build.gradle) found")
+		return 0
+	}
+	head := make([]string, 0, 2)
+	if reply.Java != "" {
+		head = append(head, "java "+reply.Java)
+	}
+	if reply.Boot != "" {
+		head = append(head, "boot "+reply.Boot)
+	}
+	if len(head) > 0 {
+		fmt.Fprintf(p.Out, "%s  (%d build files)\n", strings.Join(head, "  "), reply.Files)
+	}
+	if reply.Count == 0 {
+		fmt.Fprintln(p.Out, "no dependencies match")
+		return 0
+	}
+	w := 0
+	for _, d := range reply.Deps {
+		if n := len(d.Group + ":" + d.Artifact); n > w {
+			w = n
+		}
+	}
+	for _, d := range reply.Deps {
+		ver := d.Version
+		if ver == "" {
+			ver = "?"
+		}
+		line := fmt.Sprintf("%-*s  %-14s %-9s %s", w+1, d.Group+":"+d.Artifact, ver, d.Tier, d.Source)
+		if d.Note != "" {
+			line += "  # " + d.Note
+		}
+		fmt.Fprintln(p.Out, line)
+	}
+	if more := reply.Count - reply.Shown; more > 0 {
+		fmt.Fprintf(p.Out, "+%d more (--limit %d, or a filter)\n", more, reply.Count)
+	}
+	return 0
+}
+
 // Generic writes a map-shaped payload as JSON or a compact dump.
 func (p *Printer) Generic(v any, asJSON bool) int {
 	return p.JSON(v)

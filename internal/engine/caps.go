@@ -116,6 +116,12 @@ var commandCaps = map[string]Capabilities{
 	"ask": CapsAll,
 	// Counters come off the scan, and nothing else is read.
 	"status": 0,
+	// deps opens no snapshot at all: it reads the build files and lists the local
+	// artifact cache itself (a repo's dozen build files do not justify an 850-file
+	// scan, and JARs must stay out of the symbol graph). The row records that
+	// decision where every other command's cost is decided, so CapsFor("deps")
+	// is a stated intent and never a CapsAll accident — FIX_PLAN §7.
+	"deps": 0,
 }
 
 // fileWork is the per-file slice of that plan. Resolving to zero is the cheap
