@@ -29,55 +29,36 @@ func Build(files []ir.FileFacts) *SymbolIndex {
 	return idx
 }
 
-// Search finds definitions matching q (exact preferred over prefix).
+// Search finds definitions matching q, ranked by how good the match is:
+// exact, then prefix, then fuzzy, then substring/camel-hump (see substringMatch).
+// A capitalized query additionally prefers types over members (see ir.LexicalLess).
 func (idx *SymbolIndex) Search(q string, limit int) []ir.SearchResult {
 	q = strings.TrimSpace(q)
 	if q == "" || limit <= 0 {
 		return nil
 	}
-	type hit struct {
-		def   ir.Definition
-		match ir.MatchKind
-		score float64
-	}
-	var hits []hit
+	hits := make([]ir.SearchResult, 0, 32)
 	for _, d := range idx.defs {
-		if m, score := matchDef(q, d); m != "" {
-			hits = append(hits, hit{def: d, match: m, score: score})
+		m, score := matchDef(q, d)
+		if m == "" {
+			continue
 		}
+		hits = append(hits, ir.SearchResult{
+			Path:    d.Path,
+			Line:    d.Span.Line,
+			Symbol:  d.Qualified,
+			Kind:    kindOf(d.Kind),
+			Match:   m,
+			Score:   score,
+			Snippet: d.Signature,
+		})
 	}
-	sort.SliceStable(hits, func(i, j int) bool {
-		if hits[i].match != hits[j].match {
-			return matchRank(hits[i].match) < matchRank(hits[j].match)
-		}
-		if hits[i].score != hits[j].score {
-			return hits[i].score > hits[j].score
-		}
-		a, b := hits[i].def, hits[j].def
-		if a.Path != b.Path {
-			return a.Path < b.Path
-		}
-		if a.Span.Line != b.Span.Line {
-			return a.Span.Line < b.Span.Line
-		}
-		return a.Qualified < b.Qualified
-	})
+	wantsType := ir.WantsTypeName(q)
+	sort.SliceStable(hits, func(i, j int) bool { return ir.LexicalLess(hits[i], hits[j], wantsType) })
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
-	out := make([]ir.SearchResult, 0, len(hits))
-	for _, h := range hits {
-		out = append(out, ir.SearchResult{
-			Path:    h.def.Path,
-			Line:    h.def.Span.Line,
-			Symbol:  h.def.Qualified,
-			Kind:    kindOf(h.def.Kind),
-			Match:   h.match,
-			Score:   h.score,
-			Snippet: h.def.Signature,
-		})
-	}
-	return out
+	return hits
 }
 
 // References returns uses/relations for symbol without inventing exact dispatch.
@@ -487,7 +468,95 @@ func matchDef(q string, d ir.Definition) (ir.MatchKind, float64) {
 	if bestDist <= maxFuzzyDistance(q) {
 		return ir.MatchFuzzy, 1.0 / float64(bestDist+2)
 	}
+	// Last resort, so a query that names the middle of a symbol still finds it:
+	// `find Controller` matched nothing at all before this tier existed, because
+	// nothing is allowed to start with "Controller". It ranks below every other
+	// tier, so it can fill a gap but never overtake a better hit.
+	if score, ok := substringMatch(q, d.Name); ok {
+		return ir.MatchSubstring, score
+	}
 	return "", 0
+}
+
+// substringMatch matches a query inside a symbol's *simple* name, by plain
+// substring or by camel humps. The simple name is the whole rule: matching the
+// qualified name here would re-create the worst bug in the tool's history, where
+// a query for `pay` hit the package `paymentapi` and matched the entire repo.
+func substringMatch(q, name string) (float64, bool) {
+	if q == "" || name == "" {
+		return 0, false
+	}
+	// The length floor only applies to plain substrings: two letters in the middle
+	// of a word match a large fraction of any repo, whereas two humps is already a
+	// specific thing to ask for.
+	if len(q) >= minSubstringLen {
+		if i := strings.Index(strings.ToLower(name), strings.ToLower(q)); i >= 0 {
+			return substringScore(len(q), i, len(name)), true
+		}
+	}
+	if i, ok := camelHump(q, name); ok {
+		return substringScore(len(q), i, len(name)), true
+	}
+	return 0, false
+}
+
+const minSubstringLen = 3
+
+// substringScore prefers shorter names and earlier matches, which is what makes a
+// good first hit: OrderHandler before OrderHandlerV2 before ShippingHandler.
+func substringScore(qlen, at, nameLen int) float64 {
+	return float64(qlen) / float64(nameLen+at+1)
+}
+
+// camelHump reports whether q reads as the humps of name, one letter per hump:
+// OH → OrderHandler, OHV → OrderHandlerV2, but not OR → OrderHandler.
+//
+// One letter per hump is deliberate. The alternative (letting the tail of the
+// query prefix-match the last hump) looks better on paper and cannot be
+// explained: the plan's own example, PHCtrl → PaymentHandlerController, does not
+// even work under it, because "ctrl" is not a prefix of "controller".
+func camelHump(q, name string) (int, bool) {
+	if len(q) < 2 {
+		return 0, false
+	}
+	qi, last := 0, -1
+	for i := 0; i < len(name) && qi < len(q); i++ {
+		if !isHumpStart(name, i) {
+			continue
+		}
+		if foldByte(name[i]) != foldByte(q[qi]) {
+			return 0, false // humps must line up in order; skipping would be a guess
+		}
+		last = i
+		qi++
+	}
+	return last, qi == len(q)
+}
+
+func isHumpStart(s string, i int) bool {
+	if i == 0 {
+		return true
+	}
+	prev, c := s[i-1], s[i]
+	switch {
+	case c == '_':
+		return true
+	case isUpperASCII(c) && !isUpperASCII(prev):
+		return true
+	// HTTPServer: the last capital of a run starts the next hump.
+	case isUpperASCII(c) && isUpperASCII(prev) && i+1 < len(s) && isLowerASCII(s[i+1]):
+		return true
+	}
+	return false
+}
+
+func isUpperASCII(c byte) bool { return c >= 'A' && c <= 'Z' }
+func isLowerASCII(c byte) bool { return c >= 'a' && c <= 'z' }
+func foldByte(c byte) byte {
+	if isUpperASCII(c) {
+		return c + ('a' - 'A')
+	}
+	return c
 }
 
 func maxFuzzyDistance(q string) int {
@@ -574,18 +643,7 @@ func abs(n int) int {
 	return n
 }
 
-func matchRank(m ir.MatchKind) int {
-	switch m {
-	case ir.MatchExact:
-		return 0
-	case ir.MatchPrefix:
-		return 1
-	case ir.MatchFuzzy:
-		return 2
-	default:
-		return 9
-	}
-}
+func matchRank(m ir.MatchKind) int { return ir.RankMatch(m) }
 
 func kindOf(k ir.SymbolKind) ir.ResultKind {
 	switch k {

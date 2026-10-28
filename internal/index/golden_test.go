@@ -198,6 +198,14 @@ func targets(results []ir.RefResult) []string {
 	return out
 }
 
+func symbolsOf(results []ir.SearchResult) []string {
+	out := make([]string, 0, len(results))
+	for _, r := range results {
+		out = append(out, string(r.Kind)+" "+r.Symbol)
+	}
+	return out
+}
+
 func contains(hay []string, needle string) bool {
 	for _, h := range hay {
 		if h == needle {
@@ -356,6 +364,158 @@ func TestSearchPrefixIsBounded(t *testing.T) {
 		if !strings.Contains(strings.ToLower(h.Symbol), "payment") {
 			t.Errorf("prefix query returned unrelated symbol %s", h.Symbol)
 		}
+	}
+}
+
+// --- A6: substring / camel-hump tier ----------------------------------------
+//
+// `find Controller` on payment-api returned nothing at all: the word is in the
+// middle of every controller's name, and the matcher only knew exact and prefix.
+
+// TestSearchSubstringReachesTypes is the core A6 claim.
+func TestSearchSubstringReachesTypes(t *testing.T) {
+	idx := buildGoldenIndex(t)
+	hits := idx.Search("Controller", 20)
+	if len(hits) == 0 {
+		t.Fatal("mid-name query found nothing")
+	}
+	var got bool
+	for _, h := range hits {
+		if h.Symbol == pkgPay+".PaymentController" {
+			got = true
+			if h.Match != ir.MatchSubstring {
+				t.Errorf("mid-name hit should be labeled %s, got %s", ir.MatchSubstring, h.Match)
+			}
+		}
+	}
+	if !got {
+		t.Fatalf("PaymentController missing from `find Controller`: %v", symbolsOf(hits))
+	}
+}
+
+// TestSearchSubstringDoesNotMatchPackage is the A1 lesson applied to the new tier.
+// Substring matching against the *qualified* name is what made `pay` match the
+// package `paymentapi`; the new tier must only ever look at the simple name.
+func TestSearchSubstringDoesNotMatchPackage(t *testing.T) {
+	idx := buildGoldenIndex(t)
+	for _, h := range idx.Search("paymentapi", 20) {
+		if h.Match == ir.MatchSubstring {
+			t.Errorf("substring tier reached the package name: %s", h.Symbol)
+		}
+	}
+}
+
+// TestSearchCamelHump: PHCtrl-style shorthand reaches a type by its humps, and a
+// query whose letters do not line up with humps is rejected rather than guessed.
+func TestSearchCamelHump(t *testing.T) {
+	idx := buildGoldenIndex(t)
+
+	got := map[string]bool{}
+	for _, h := range idx.Search("OH", 20) {
+		got[h.Symbol] = true
+	}
+	for _, want := range []string{pkgHandler + ".OrderHandler", pkgHandler + ".OrderHandlerV2"} {
+		if !got[want] {
+			t.Errorf("camel-hump OH missed %s", want)
+		}
+	}
+	// OrderRepository has an O hump and no H hump: not a match for OH.
+	if got[pkgHandler+".OrderRepository"] {
+		t.Error("camel-hump OH matched OrderRepository, which has no H hump")
+	}
+}
+
+// TestMatchDefTierOrder locks the tier discipline where it is decided: the new
+// tier may only fill gaps, never overtake a stronger kind. Tested through matchDef
+// rather than Search because Search also applies the A7 kind ranking.
+func TestMatchDefTierOrder(t *testing.T) {
+	idx := buildGoldenIndex(t)
+	kind := func(qualified string) ir.Definition {
+		d, ok := idx.Lookup(qualified)
+		if !ok {
+			t.Fatalf("fixture lost %s", qualified)
+		}
+		return d
+	}
+	cases := []struct {
+		q        string
+		def      ir.Definition
+		wantKind ir.MatchKind
+	}{
+		{"handle", kind(pkgHandler + ".OrderHandler.handle"), ir.MatchExact},
+		{"OrderHandle", kind(pkgHandler + ".OrderHandler"), ir.MatchPrefix},
+		{"Controller", kind(pkgPay + ".PaymentController"), ir.MatchSubstring},
+		{"OH", kind(pkgHandler + ".OrderHandler"), ir.MatchSubstring},
+	}
+	for _, c := range cases {
+		got, score := matchDef(c.q, c.def)
+		if got != c.wantKind {
+			t.Errorf("matchDef(%q, %s)=%s want %s", c.q, c.def.Qualified, got, c.wantKind)
+		}
+		if got != "" && score <= 0 {
+			t.Errorf("matchDef(%q, %s) scored %v", c.q, c.def.Qualified, score)
+		}
+	}
+	if matchRank(ir.MatchSubstring) <= matchRank(ir.MatchFuzzy) {
+		t.Error("substring must rank below fuzzy")
+	}
+}
+
+// --- A7: kind tier -----------------------------------------------------------
+//
+// `find Handler` on payment-api returned 31 hits, 29 of them private test fields
+// called `handler`, and none of the handler classes.
+
+// TestSearchKindTierLeadsWithTypes: a capitalized query is asking for a type.
+func TestSearchKindTierLeadsWithTypes(t *testing.T) {
+	idx := buildGoldenIndex(t)
+	hits := idx.Search("Handler", 20)
+	if len(hits) == 0 {
+		t.Fatal("find Handler found nothing")
+	}
+	if hits[0].Kind != ir.KindClass {
+		t.Fatalf("first hit should be a class, got %s %s", hits[0].Kind, hits[0].Symbol)
+	}
+	var classes int
+	for _, h := range hits {
+		if h.Kind == ir.KindClass {
+			classes++
+		}
+	}
+	if classes < 3 {
+		t.Errorf("handler classes missing from the first page: %v", symbolsOf(hits))
+	}
+}
+
+// TestSearchKindTierIsNotAFilter: the lowercase spelling still reaches the field,
+// so someone looking for a collaborator named handler is not sent away.
+func TestSearchKindTierIsNotAFilter(t *testing.T) {
+	idx := buildGoldenIndex(t)
+	hits := idx.Search("handler", 20)
+	var sawField bool
+	for _, h := range hits {
+		if h.Kind == ir.KindField {
+			sawField = true
+		}
+	}
+	if !sawField {
+		t.Fatalf("lowercase query lost the field: %v", symbolsOf(hits))
+	}
+	if hits[0].Kind != ir.KindField {
+		t.Errorf("exact lowercase hit should still lead, got %s %s", hits[0].Kind, hits[0].Symbol)
+	}
+}
+
+// TestSearchExactClassStillLeads is the plan's guard test: A6/A7 must not move a
+// query that already names the class.
+func TestSearchExactClassStillLeads(t *testing.T) {
+	idx := buildGoldenIndex(t)
+	hits := idx.Search("PaymentController", 20)
+	if len(hits) == 0 {
+		t.Fatal("no hits")
+	}
+	if hits[0].Symbol != pkgPay+".PaymentController" || hits[0].Match != ir.MatchExact {
+		t.Fatalf("guard failed: %s (%s)", hits[0].Symbol, hits[0].Match)
 	}
 }
 

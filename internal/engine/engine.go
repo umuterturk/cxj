@@ -227,28 +227,17 @@ func (e *Engine) Search(q string, limit int) ir.SearchReply {
 	if limit > 50 {
 		limit = 50
 	}
-	return ir.SearchReply{Results: mergeLexical(e.syms.Search(q, limit), e.text.Search(q, limit), limit)}
+	return ir.SearchReply{Results: mergeLexical(q, e.syms.Search(q, limit), e.text.Search(q, limit), limit)}
 }
 
-func mergeLexical(sym, text []ir.SearchResult, limit int) []ir.SearchResult {
+// mergeLexical interleaves symbol hits with raw text hits using the same ranking
+// the symbol index used, so nothing the index decided gets undone on the way out.
+func mergeLexical(q string, sym, text []ir.SearchResult, limit int) []ir.SearchResult {
 	all := make([]ir.SearchResult, 0, len(sym)+len(text))
 	all = append(all, sym...)
 	all = append(all, text...)
-	sort.SliceStable(all, func(i, j int) bool {
-		if rankMatch(all[i].Match) != rankMatch(all[j].Match) {
-			return rankMatch(all[i].Match) < rankMatch(all[j].Match)
-		}
-		if all[i].Score != all[j].Score {
-			return all[i].Score > all[j].Score
-		}
-		if all[i].Path != all[j].Path {
-			return all[i].Path < all[j].Path
-		}
-		if all[i].Line != all[j].Line {
-			return all[i].Line < all[j].Line
-		}
-		return all[i].Symbol < all[j].Symbol
-	})
+	wantsType := ir.WantsTypeName(q)
+	sort.SliceStable(all, func(i, j int) bool { return ir.LexicalLess(all[i], all[j], wantsType) })
 	if len(all) > limit {
 		all = all[:limit]
 	}
@@ -256,21 +245,6 @@ func mergeLexical(sym, text []ir.SearchResult, limit int) []ir.SearchResult {
 		return []ir.SearchResult{}
 	}
 	return all
-}
-
-func rankMatch(m ir.MatchKind) int {
-	switch m {
-	case ir.MatchExact:
-		return 0
-	case ir.MatchPrefix:
-		return 1
-	case ir.MatchFuzzy:
-		return 2
-	case ir.MatchText:
-		return 3
-	default:
-		return 9
-	}
 }
 
 // resolveOwners maps a user query to the definitions it can mean.

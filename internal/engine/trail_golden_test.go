@@ -341,3 +341,41 @@ func TestCalleesOfQualifiedSymbolIsNotAmbiguous(t *testing.T) {
 		t.Errorf("qualified query flagged ambiguous: %v", reply.Ambiguous)
 	}
 }
+
+// --- A6/A7 at the surface ----------------------------------------------------
+
+// TestSearchSymbolHitOutranksTextHit is why the match-tier table had to move into
+// ir: engine kept its own copy for merging symbol and text hits, so a tier the
+// copy did not know about sorted below raw grep matches and a class named
+// PayHandler lost to a line in demo.html.
+func TestSearchSymbolHitOutranksTextHit(t *testing.T) {
+	files := map[string]string{
+		"src/main/java/com/example/paymentapi/PayHandler.java": `package com.example.paymentapi;
+
+public class PayHandler {
+    public String handle(String body) { return body; }
+}
+`,
+		"src/main/resources/application.yml": "app:\n  handler: pay\n  other-handler: refund\n",
+	}
+	eng, err := Open(writeTree(t, files), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := eng.Search("Handler", 10).Results
+	if len(results) == 0 {
+		t.Fatal("nothing found")
+	}
+	if results[0].Kind != ir.KindClass {
+		t.Fatalf("a raw text line outranked the class: %s %s", results[0].Kind, results[0].Path)
+	}
+	var sawText bool
+	for _, r := range results {
+		if r.Kind == ir.KindText {
+			sawText = true
+		}
+	}
+	if !sawText {
+		t.Error("text hits disappeared; the tier is a sink, not a filter")
+	}
+}
