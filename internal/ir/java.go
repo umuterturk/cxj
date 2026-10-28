@@ -55,9 +55,16 @@ type Occurrence struct {
 
 // Edge is a candidate relation between symbols (implements, calls, ...).
 type Edge struct {
-	Kind      string // "calls" | "implements" | "extends" | "overrides"
-	From      string
-	To        string
+	Kind string // "calls" | "implements" | "extends" | "overrides"
+	From string
+	To   string
+	// RecvType is the declared simple type of the call's receiver, when the
+	// extractor could tell (field/param/local declaration, this/super, bare
+	// call, new X(), or a receiver naming a known type). Empty means unknown:
+	// chained calls, qualified receivers, lambdas. It is what lets `callers`
+	// distinguish `payService.pay` from `controller.pay` instead of matching
+	// any call whose name ends in ".pay" (FIX_PLAN A3).
+	RecvType  string
 	Path      string
 	Span      Span
 	Certainty Certainty

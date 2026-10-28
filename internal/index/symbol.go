@@ -19,6 +19,13 @@ type SymbolIndex struct {
 	// ascii records which definitions are pure ASCII, so ranking can choose the
 	// byte-folding matcher per definition without re-scanning the names per query.
 	ascii asciiFlags
+	// subtypes indexes "simple supertype name -> simple subtype names" from
+	// extends/implements edges, so typed call matching can accept a call on
+	// PayServiceImpl when the query is PayService.pay (A3). Keyed by simple
+	// name because that is what a declared receiver type is; two unrelated
+	// types sharing a simple name blur together here, inside a tier that is
+	// already labeled candidate.
+	subtypes map[string]map[string]bool
 }
 
 // Build constructs an index from extracted file facts.
@@ -30,7 +37,72 @@ func Build(files []ir.FileFacts) *SymbolIndex {
 		idx.occs = append(idx.occs, f.Occurrences...)
 	}
 	idx.ascii = newASCIIFlags(idx.defs)
+	idx.indexHeritage()
+	idx.completeStaticReceivers()
 	return idx
+}
+
+// indexHeritage builds the simple-name subtype lookup used by typed call
+// matching (A3).
+func (idx *SymbolIndex) indexHeritage() {
+	idx.subtypes = map[string]map[string]bool{}
+	for _, e := range idx.edges {
+		if e.Kind != "extends" && e.Kind != "implements" {
+			continue
+		}
+		sub, sup := simpleName(e.From), simpleName(e.To)
+		if sub == "" || sup == "" || sub == sup {
+			continue
+		}
+		if idx.subtypes[sup] == nil {
+			idx.subtypes[sup] = map[string]bool{}
+		}
+		idx.subtypes[sup][sub] = true
+	}
+}
+
+// completeStaticReceivers types call edges whose receiver reads as a bare,
+// capitalized identifier naming a type defined in the workspace:
+// PayUtil.round(...) in a file that does not declare PayUtil is a static
+// call, and no per-file scope can see that — only the whole index can.
+// Lowercase unknowns are left untyped: a lowercase name is some variable
+// somewhere, and resolving it across files would be the guess A3 exists to
+// prevent.
+func (idx *SymbolIndex) completeStaticReceivers() {
+	types := map[string]bool{}
+	for _, d := range idx.defs {
+		switch d.Kind {
+		case ir.SymbolClass, ir.SymbolInterface, ir.SymbolEnum:
+			types[d.Name] = true
+		}
+	}
+	if len(types) == 0 {
+		return
+	}
+	for i := range idx.edges {
+		e := &idx.edges[i]
+		if e.Kind != "calls" || e.RecvType != "" {
+			continue
+		}
+		dot := strings.LastIndexByte(e.To, '.')
+		if dot <= 0 {
+			continue
+		}
+		recv := e.To[:dot]
+		if recv[0] < 'A' || recv[0] > 'Z' || strings.IndexByte(recv, '.') >= 0 {
+			continue
+		}
+		if types[recv] {
+			e.RecvType = recv
+		}
+	}
+}
+
+func simpleName(q string) string {
+	if i := strings.LastIndexByte(q, '.'); i >= 0 {
+		return q[i+1:]
+	}
+	return q
 }
 
 // Search finds definitions matching q, ranked by how good the match is:
@@ -127,12 +199,16 @@ func (idx *SymbolIndex) References(symbol string) []ir.RefResult {
 		}
 	}
 
-	// Call sites: match by method simple name; certainty stays candidate/unresolved.
+	// Call sites: two tiers (A3). An edge whose receiver the extractor typed
+	// must agree with the queried owner — that is what stops every
+	// `anything.pay` from answering `callers PaymentController.pay`. An edge
+	// whose receiver is genuinely unknown (chained calls, lambdas) still
+	// matches by name, labeled candidate, because name is all it has.
 	for _, e := range idx.edges {
 		if e.Kind != "calls" {
 			continue
 		}
-		if !callMatches(e.To, symbol, simple) {
+		if !idx.callEdgeMatches(e, symbol, owner, simple) {
 			continue
 		}
 		add(ir.RefResult{
@@ -427,6 +503,29 @@ func trimPkg(q string) string {
 		return q[i+1:]
 	}
 	return q
+}
+
+// callEdgeMatches decides whether a call edge could be a call to symbol.
+//
+// Typed edges (A3): the declared receiver type must be the queried owner or a
+// direct subtype of it — the honest reading of "who calls C.pay". Virtual
+// dispatch means a subtype's call is still a candidate, never exact, so the
+// certainty label does not change; what changes is that `payService.pay` no
+// longer answers a query about `controller.pay`.
+//
+// Untyped edges keep the legacy name-only rule untouched (below): a query
+// with no owner to compare against (a bare name), or an edge whose receiver
+// has no declared type in this file, falls back to name matching and the
+// candidate label that has always come with it.
+func (idx *SymbolIndex) callEdgeMatches(e ir.Edge, symbol, owner, simple string) bool {
+	if e.RecvType == "" || owner == "" {
+		return callMatches(e.To, symbol, simple)
+	}
+	if simpleName(e.To) != simple {
+		return false
+	}
+	ownerSimple := simpleName(owner)
+	return e.RecvType == ownerSimple || idx.subtypes[ownerSimple][e.RecvType]
 }
 
 func callMatches(to, symbol, simple string) bool {

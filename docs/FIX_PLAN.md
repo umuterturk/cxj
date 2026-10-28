@@ -634,8 +634,8 @@ drops test files and ~99 of those collisions lived in tests. The A-RC1 root caus
 intact — `--scope all` still returns 106. Perf scoping made the *evidence* of an accuracy bug
 disappear, which is the opposite of what a faster tool should do. So A1/A2 must be verified at
 `--scope all`, not only at the new faster default, or the fix can pass while remaining broken.
-A1, A2, A6 and A7 were all checked that way; `callers` at 106 is the row still open, and it is
-open because it needs A3 rather than a stricter string.
+A1, A2, A6 and A7 were all checked that way; `callers` at 106 was the row left open — open
+because it needs A3 rather than a stricter string — and A3 closed it at `--scope all` (§4.4).
 
 ### 4.2 Root causes (code-anchored)
 - **A-RC1 simple-name edge matching** — `index.References` via `callMatches` and
@@ -726,12 +726,34 @@ compact JSON (A2); the `(+K more)` cap marker and certainty-in-verbose are still
   `scan.isTestPath` both delegate to it (the two spellings had quietly agreed only by luck).
   This is the battery's first **intended** divergence: 3/31 `find` rows reorder, all pure
   main-first moves, everything else byte-identical.
-- **A3 — Receiver typing (A-RC4, A-RC1 caller side; largest, land last).** Record declared
-  types for fields/params (+ simple locals) in extraction; build a `varName→Type` scope map;
-  when a call receiver is a known name, set edge `To` to the receiver *type* (still
-  `candidate`). Then `callers C.pay` matches typed edges resolving to `C`/subtypes, falling back
-  to name candidates (labeled `candidate`) only when the type is unknown. **Exit:**
-  `callers …PaymentController.pay` drops 106 → real caller set.
+- **A3 — Receiver typing (A-RC4, A-RC1 caller side; largest, land last) ✅.** Extraction now
+  records declared types — fields (whole-class pre-pass, so order in the body does not
+  matter), parameters, locals, enhanced-for bindings, `this.field`/`this.method()`/`super.`,
+  `new X()` constructions, bare implicit-this calls — and stamps the receiver's declared
+  simple type onto the call edge. One deviation from the plan's letter, deliberate: the edge
+  keeps `To` as the raw text and gains a separate `RecvType` field, because rewriting `To`
+  in place would have changed every `callees` row (raw receiver text is what that listing
+  shows). `callers C.pay` then accepts a typed edge only when the receiver type *is* `C` or
+  a declared subtype of it; a call through an interface-typed field answers to the
+  interface, never to one chosen implementation (cxj does not track runtime bindings);
+  genuinely untypeable receivers — chains like `getSvc().pay()`, lambda parameters — keep
+  the old name-only match, still labeled `candidate`, because "unknown" must never become
+  "no". A whole-index pass also types static-style calls (`Util.round(1)` where `Util` is a
+  known type declared in another file) — the one judgment no per-file scope can make.
+  **Exit:** `callers …PaymentController.pay` 106 → **13** (`--scope all`), main scope 7 →
+  **1** — and the honest truth about that endpoint is that *nothing in the repo calls it*
+  (it is an HTTP entry point); the one survivor is `findEligibleService(payment).pay(...)`
+  in PayMethodExecutor, a chained receiver cxj genuinely cannot type, kept as a candidate.
+  Every dropped row was checked to be a call to a *different* class's `pay`
+  (`payService.pay`, `cardPaymentClient.pay`, Mockito `verify(x).pay(...)` where x is a
+  typed mock…). Those calls are not lost — `callers …PayService.pay` now finds exactly its
+  own 3 main callers / 56 all-scope callers, correctly attributed. The method's real
+  dispatch target stays visible where it should: as an `http` trail row (`POST /v1/payments`,
+  `exact`). The cpu cost of the extra typing is +7.5% (bindings collected in the same
+  traversal as the calls, so there is no second AST walk); wall unchanged. Battery:
+  5/31 intended diffs — `callers`, `callers all`, `trail`, `trail all`, `trail json` —
+  every one a pure removal of a wrong-receiver row (plus `totals.callers` 7→1 in JSON);
+  `callees` and `references` stayed byte-identical by construction and were verified so.
 - **A5 — Honesty in presentation (A-RC3 visibility) ✅ (shipped in halves).** The ambiguity
   half shipped with A2 (`ambiguous N: qualify the query (…)` in text, `ambiguous_total` in
   JSON); the certainty half ships here in `trail --verbose`, which now appends each hit's
@@ -763,16 +785,17 @@ compact JSON (A2); the `(+K more)` cap marker and certainty-in-verbose are still
 ### 4.4 Benchmark table (Track A exit criteria, from `payment-api`)
 | Metric | Before | Target | As shipped |
 |---|---|---|---|
-| `callers …PaymentController.pay` | 106 | single digit | 106 — needs A3 (untouched by A1/A2 on purpose) |
+| `callers …PaymentController.pay` | 106 | single digit | **1** ✅ (A3) — 0 typed callers + 1 unknown-receiver candidate; truthfully, nothing in the repo calls its own HTTP endpoint |
 | `callees …PayHandler.handle` | 292 | ≈ method-body calls | **31** ✅ |
 | distinct files in that callees | 23 | 1 | **1** ✅ |
 | `trail …PaymentController.pay` http rows | 5 (all wrong) | 1 | **1, its own** ✅ |
 | `find Controller` result count | 0 | main controller set, main-first | **5 controllers, all main** ✅ (A4 pushed the validation test off the page) |
 | `find Handler` classes on first page | 0 | most of the first page | **5/5**, and 48/50 at `--scope all --limit 50` ✅ (A4: two main-tree `demo.html` text rows now rank above the last two test classes — see A4) |
-| `callers …PaymentController.pay` at `--scope all` | 106 | single digit | 106 — A3 |
+| `callers …PaymentController.pay` at `--scope all` | 106 | single digit | **13** ✅ (A3) — all 13 are untypeable chained receivers (`verify(x).pay(...)` style), kept as `candidate`; every wrong-typed receiver dropped, each hand-checked as a call to a *different* class's `pay` |
 
 Every row is checked at `--scope all` as well as at the main-scope default: a narrowed default
-can make an unfixed matcher look fixed, and `callers` is the honest counterexample still open.
+can make an unfixed matcher look fixed, and `callers` was the honest counterexample — open
+until A3 closed it at full scope, which is where it was measured.
 
 ---
 
@@ -964,11 +987,11 @@ declaration means no coordinate — the same honesty boundary as `deps`).
 - Track A regression table (§4.4) stays green in CI.
 
 ## 7. Rollout, effort, non-goals
-**Status (2026-10-28): P0, P1, P2, P3, P4, P5, P7 shipped and gated; Track A's cheap half (A0, A1,
-A2, A4, A5, A6, A7) and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) are shipped.** Everything below is
-the remaining queue. A4's main-first `find` reorder and A5's trail-cap markers were the battery's
-first intended divergences; the identity baseline moves forward with each such phase, so from here
-on any diff is a bug again. A6 moved
+**Status (2026-10-28): P0, P1, P2, P3, P4, P5, P7 shipped and gated; Track A is complete (A0–A7)
+and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) is shipped.** Only the docs/bench wrap-up
+remains. A4's main-first `find` reorder, A5's trail-cap markers, and A3's caller re-attribution
+were the battery's intended divergences; the identity baseline moves forward with each such
+phase, so from here on any diff is a bug again. A6 moved
 forward because it is the
 cheapest user-visible accuracy win and touches none of the graph code — it paid off, and A7 came
 with it. P5 jumped the queue ahead of P3 because it was the only remaining phase whose fix was a
@@ -977,7 +1000,7 @@ P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× c
 is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
-P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 ✅ → P3 ✅ → A3 → docs/bench`.
+P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 ✅ → P3 ✅ → A3 ✅ → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so
@@ -986,7 +1009,9 @@ Sizing: P0 S ✅ · P1 S ✅ · A0 S ✅ · A1 S ✅ ·
 A2 S–M ✅ (came in S) · A6 S ✅ · A7 S ✅ (landed with A6, but needed a second rule) ·
 P2 M ✅ (the code was S; the 44-case identity proof and the drift guard were the work) ·
 P5 S ✅ (the swap was S; the 641k-position parity test was the work) ·
-B1 M · P4 M · B2 M · A4 S · A5 S (half shipped via A2) · P3 M · A3 M · docs S.
+B1 M ✅ · P4 M ✅ · B2 M ✅ · A4 S ✅ · A5 S ✅ (half shipped via A2) · P3 M ✅ (the plan's
+premise was wrong; the trace was the work) · A3 M ✅ (the typing rules were M; the honest
+exit — hand-checking every dropped row — was the work) · docs S.
 
 **One thing P5 changes about the queue.** The fixture matched `payment-api` by file count and still
 under-reported a superlinear cost by 4.5× (§3.6), so any remaining per-file or per-query loop that

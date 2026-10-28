@@ -70,6 +70,21 @@ type typeScope struct {
 	qualified string
 	kind      ir.SymbolKind
 	parent    *typeScope
+	// fieldTypes maps declared field names to their simple type names, for
+	// receiver typing (A3). Fields declared after a method still see it: it
+	// is built from the whole class body before any method is walked.
+	fieldTypes map[string]string
+}
+
+// fieldType walks the type-scope chain (inner classes see outer fields) for a
+// declared field's simple type name.
+func (s *typeScope) fieldType(name string) string {
+	for ; s != nil; s = s.parent {
+		if t, ok := s.fieldTypes[name]; ok {
+			return t
+		}
+	}
+	return ""
 }
 
 func walk(n *tree_sitter.Node, src []byte, path, pkg string, scope *typeScope, facts *ir.FileFacts) {
@@ -112,6 +127,7 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, scope *typeScope, f
 		body := n.ChildByFieldName("body")
 		childScope := &typeScope{name: name, qualified: qual, kind: kind, parent: scope}
 		if body != nil {
+			childScope.fieldTypes = classFieldTypes(body, src)
 			for i := uint(0); i < body.NamedChildCount(); i++ {
 				walk(body.NamedChild(i), src, path, pkg, childScope, facts)
 			}
@@ -149,10 +165,17 @@ func walk(n *tree_sitter.Node, src []byte, path, pkg string, scope *typeScope, f
 			Span:      full,
 			Certainty: ir.CertaintyExact,
 		})
-		// Walk body for invocations
+		// Walk body for invocations. The method's declared variable types
+		// travel with the walk (A3): parameters bind up front, locals bind
+		// as the walk reaches them — one traversal, and a declaration in
+		// scope for everything after it, which is where Java puts them.
+		vars := map[string]string{}
+		if params != nil {
+			collectFormalTypes(params, src, vars)
+		}
 		body := n.ChildByFieldName("body")
 		if body != nil {
-			walkInvocations(body, src, path, qual, facts)
+			walkInvocations(body, src, path, qual, scope, vars, facts)
 		}
 		return
 	case "field_declaration":
@@ -220,19 +243,44 @@ func collectFields(n *tree_sitter.Node, src []byte, path, pkg string, scope *typ
 	}
 }
 
-func walkInvocations(n *tree_sitter.Node, src []byte, path, from string, facts *ir.FileFacts) {
+// walkInvocations walks a method body for calls, binding declared types as
+// it passes them (A3). One traversal for both jobs: a call sees the
+// parameters and every local declared before it — the scope Java gives it,
+// approximated flat (see collectFormalTypes).
+func walkInvocations(n *tree_sitter.Node, src []byte, path, from string, scope *typeScope, vars map[string]string, facts *ir.FileFacts) {
 	if n == nil {
 		return
 	}
-	if n.Kind() == "method_invocation" {
-		extractInvocation(n, src, path, from, facts)
+	switch n.Kind() {
+	case "method_invocation":
+		extractInvocation(n, src, path, from, scope, vars, facts)
+	case "local_variable_declaration":
+		// Bind before descending, so a call in the initializer resolves the
+		// same names the two-pass version saw.
+		declVarType(n, src, vars)
+	case "enhanced_for_statement":
+		// for (Tag tag : tags) — a typed binding like a declaration, with
+		// its own node shape rather than a formal_parameter one.
+		tn, nn := n.ChildByFieldName("type"), n.ChildByFieldName("name")
+		if tn != nil && nn != nil {
+			if t := simplifyType(nodeText(tn, src)); t != "" {
+				if name := nodeText(nn, src); vars[name] == "" {
+					vars[name] = t
+				}
+			}
+		}
+	case "formal_parameters":
+		// Typed lambda parameters (method parameters were bound before the
+		// walk started).
+		collectFormalTypes(n, src, vars)
+		return
 	}
 	for i := uint(0); i < n.NamedChildCount(); i++ {
-		walkInvocations(n.NamedChild(i), src, path, from, facts)
+		walkInvocations(n.NamedChild(i), src, path, from, scope, vars, facts)
 	}
 }
 
-func extractInvocation(n *tree_sitter.Node, src []byte, path, from string, facts *ir.FileFacts) {
+func extractInvocation(n *tree_sitter.Node, src []byte, path, from string, scope *typeScope, vars map[string]string, facts *ir.FileFacts) {
 	nameNode := n.ChildByFieldName("name")
 	if nameNode == nil {
 		return
@@ -265,10 +313,180 @@ func extractInvocation(n *tree_sitter.Node, src []byte, path, from string, facts
 		Kind:      "calls",
 		From:      from,
 		To:        to,
+		RecvType:  resolveReceiver(recv, scope, vars),
 		Path:      path,
 		Span:      spanOf(nameNode),
 		Certainty: ir.CertaintyCandidate,
 	})
+}
+
+// resolveReceiver types a call receiver from what the file itself declares
+// (FIX_PLAN A3). Known answers: bare calls, this/super, plain identifiers
+// declared as a parameter, local, or field of an enclosing type, and
+// `new X()...` constructions. Unknown stays empty — chained calls
+// (getSvc().pay()), qualified receivers, and lambda parameters genuinely have
+// no cheap declared type, and inventing one would be the guess A3 exists to
+// remove. The caller keeps matching those the old, honest-candidate way.
+func resolveReceiver(recv string, scope *typeScope, vars map[string]string) string {
+	switch {
+	case recv == "" || recv == "this" || recv == "super":
+		if scope != nil {
+			return scope.name // bare call: implicit this, or inherited (subtype rule covers supers)
+		}
+		return ""
+	case strings.HasPrefix(recv, "new "):
+		t := strings.TrimSpace(strings.TrimPrefix(recv, "new"))
+		if i := strings.IndexByte(t, '('); i >= 0 {
+			t = t[:i]
+		}
+		if t = simplifyType(t); t != "" {
+			return t
+		}
+		return ""
+	case strings.HasPrefix(recv, "this."), strings.HasPrefix(recv, "super."):
+		// this.field.other() → the field's type; this.method() → the object
+		// itself. super.method() reads the same way: typing it to the
+		// enclosing class still answers superclass queries, because a
+		// subtype of the superclass is exactly what the subtype rule accepts.
+		rest := recv[5:] // after "this."
+		if recv[0] == 's' {
+			rest = recv[6:] // after "super."
+		}
+		head := rest
+		if i := strings.IndexAny(rest, ".("); i >= 0 {
+			head = rest[:i]
+		}
+		if scope == nil || !isIdentifierLike(head) {
+			return ""
+		}
+		if t := scope.fieldType(head); t != "" {
+			return t
+		}
+		if !strings.ContainsRune(rest, '.') {
+			return scope.name
+		}
+		return ""
+	case isPlainIdentifier(recv):
+		if t, ok := vars[recv]; ok && t != "" {
+			return t
+		}
+		if scope != nil {
+			if t := scope.fieldType(recv); t != "" {
+				return t
+			}
+		}
+		return "" // could be a static call on a type from another file; index completes that
+	}
+	return ""
+}
+
+// isPlainIdentifier accepts a lowercase-initial Java identifier (camelCase
+// names like payService). A capitalized receiver is deliberately excluded:
+// the extractor cannot see cross-file types, and a capitalized name might be
+// a static type reference — that case is completed by the index, where the
+// full type set is known, rather than guessed here.
+func isPlainIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_' || r >= 'a' && r <= 'z':
+		case i > 0 && (r >= 'A' && r <= 'Z' || r >= '0' && r <= '9'):
+		default:
+			return false
+		}
+	}
+	return !(s[0] >= 'A' && s[0] <= 'Z')
+}
+
+// isIdentifierLike: any-case Java identifier (no dots, parens, spaces).
+func isIdentifierLike(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// classFieldTypes reads the declared types of a class body's fields. Done for
+// the whole body before methods are walked, so a field declared after the
+// method that uses it is still typed.
+func classFieldTypes(body *tree_sitter.Node, src []byte) map[string]string {
+	var out map[string]string
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		c := body.NamedChild(i)
+		if c == nil || c.Kind() != "field_declaration" {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		declVarType(c, src, out)
+	}
+	return out
+}
+
+// collectFormalTypes records parameter declared types (formal and varargs).
+func collectFormalTypes(params *tree_sitter.Node, src []byte, vars map[string]string) {
+	for i := uint(0); i < params.NamedChildCount(); i++ {
+		p := params.NamedChild(i)
+		if p == nil {
+			continue
+		}
+		switch p.Kind() {
+		case "formal_parameter", "spread_parameter":
+			declVarType(p, src, vars)
+		}
+	}
+}
+
+// declVarType handles the shapes that declare a typed name: a
+// field_declaration/local_variable_declaration (type field + declarators) and
+// a formal_parameter/spread_parameter (type + name fields).
+// Declarations bind first-wins: parameters are collected before the body, and
+// an earlier declaration beats a later lambda parameter of the same name, so
+// the most method-level reading of a name is the one that sticks.
+func declVarType(n *tree_sitter.Node, src []byte, vars map[string]string) {
+	typeNode := n.ChildByFieldName("type")
+	if typeNode == nil {
+		return
+	}
+	typ := simplifyType(nodeText(typeNode, src))
+	if typ == "" {
+		return
+	}
+	bind := func(name string) {
+		if _, ok := vars[name]; !ok {
+			vars[name] = typ
+		}
+	}
+	if n.Kind() == "formal_parameter" || n.Kind() == "spread_parameter" {
+		if nameNode := n.ChildByFieldName("name"); nameNode != nil {
+			bind(nodeText(nameNode, src))
+		}
+		return
+	}
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		c := n.NamedChild(i)
+		if c == nil || c.Kind() != "variable_declarator" {
+			continue
+		}
+		nameNode := c.ChildByFieldName("name")
+		if nameNode == nil {
+			nameNode = firstChildOfKind(c, "identifier")
+		}
+		if nameNode != nil {
+			bind(nodeText(nameNode, src))
+		}
+	}
 }
 
 func findPackage(root *tree_sitter.Node, src []byte) string {
