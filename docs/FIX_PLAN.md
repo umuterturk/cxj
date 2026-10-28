@@ -195,10 +195,44 @@ serial fraction — not more cores.**
   End to end, 28 invocations of the two binaries over `payment-api` (both scopes, text and JSON)
   are byte-identical; the only field that moved anywhere is `status --json`'s
   `go_heap_alloc_bytes`, 44.9 MB → 3.1 MB.
-- **P3 — Attack the serial fraction (P-RC3).** Parallelize independent post-parse work (per-file
-  facts already arrive in slots — build symbol/text/spring/config shards concurrently and merge);
-  pre-size and parallelize sort where order-independent. Target serial < 8% ⇒ ~9× on 12 cores,
-  but the real goal is lower wall at GOMAXPROCS=4 (typical ultrabook) and lower CPU at all sizes.
+- **P3 — Attack the serial fraction (P-RC3) ✅.** The plan pointed at the post-parse index
+  builds; the trace tool built for the phase says the plan was aimed at the wrong half of
+  the pipeline — the four builds together are 10 ms worst case (symbol 9.3 ms at `--scope
+  all` CapsAll, the rest under 1 ms). The real serial fraction lived in `scan`:
+  74–88 ms of the 190 ms `brief` on `payment-api`, and inside it, **`exclude.Match` at
+  56 ms** — it re-split the path for every bare pattern and re-parsed every glob via
+  `path.Match`, for every prefix of every walked path, so one query cost 400 pattern
+  evaluations per file. And scan read every file whole to judge UTF-8/binary-ness, threw
+  the bytes away, and `Open` opened every file a second time.
+  - **The matcher.** All four spellings of every default exclusion ("build", "build/**",
+    "**/build", "**/build/**") match exactly the paths that contain that segment, so the
+    28-pattern default set collapsed to one set lookup per segment; only user globs keep the
+    prefix loop. This is the house differential idiom again: the legacy implementation is
+    pasted into `exclude_parity_test.go` and the new one must agree with it over ~5k paths
+    × four pattern sets, including the nasties (`**` matching zero segments, a path equal
+    to a pattern, backslashes, `..`). 56 ms → ~2 ms, provably the same function.
+  - **The reads.** Scan became two phases: a walk that classifies paths (regularity from
+    the readdir type bits — no lstat per file; the oversize check moved from `stat` into a
+    capped read of `maxBytes+1`, so the walk's `Info()` calls went from one-per-entry to
+    one-per-oddity), and a worker pool that reads, validates, and **keeps the bytes**, which
+    `Open` now consumes instead of re-opening. Every file in the workspace is opened once
+    instead of twice; the bytes are released incrementally as the parse workers take them.
+    Validation verdicts are per-file, so the `status` counters are identical whatever the
+    schedule. (One documented divergence, for completeness: an unreadable file over the size
+    cap used to count as oversize, now drops silently. No workspace in sight has one.)
+  - **The builds** are parallel anyway (four independent goroutines); the serial tail of
+    `Open` is one build.
+  - **Exit** — fixture gate re-captured, and every metric moved: wall −13% to −33%
+    (`find_main` 90→60, `keys` 60→40, `find_all`/`brief` 150→120/130, `trail_main` 100→90),
+    RSS −8%; cpu_ms up 5–9% where parallelism buys the wall (`brief` 1130→1230), flat on
+    the cheap commands. On real `payment-api`: `trail` 150→**100 ms**, `find --scope all`
+    210→**140 ms**, `keys` 100→**60 ms**, `brief` 210→**150 ms**. At `GOMAXPROCS=4` the
+    fixture `trail` is 130→110 ms and at `=1` still 340→320 ms: with one core the parse
+    dominates and the win shrinks to the saved CPU (matcher + the removed second read),
+    which is the honest shape — parallel where there are cores, cheaper anyway where
+    there are not.
+    And the phase is **purely additive where it counts**: all 31 battery invocations stayed
+    byte-identical — P3 moved the floor under the output without touching the output.
 - **P4 — Batched queries in one process (P-RC5, still stateless). ✅ approved as no-state-legal,
   shipped 2026-10-28 as `cxj batch`.** One process opens once, answers many stdin queries, persists
   nothing, exits. JSONL in (`{"cmd":"find","arg":"Order"}` per line), JSONL out in request order,
@@ -930,8 +964,8 @@ declaration means no coordinate — the same honesty boundary as `deps`).
 - Track A regression table (§4.4) stays green in CI.
 
 ## 7. Rollout, effort, non-goals
-**Status (2026-10-28): P0, P1, P2, P4, P5, P7 shipped and gated; Track A's cheap half (A0, A1, A2,
-A4, A5, A6, A7) and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) are shipped.** Everything below is
+**Status (2026-10-28): P0, P1, P2, P3, P4, P5, P7 shipped and gated; Track A's cheap half (A0, A1,
+A2, A4, A5, A6, A7) and Track B's `deps`/`api` pair (§5.1.1, §5.2.1) are shipped.** Everything below is
 the remaining queue. A4's main-first `find` reorder and A5's trail-cap markers were the battery's
 first intended divergences; the identity baseline moves forward with each such phase, so from here
 on any diff is a bug again. A6 moved
@@ -943,7 +977,7 @@ P7 then jumped ahead of B1 for the reason §3.7 measured: it made a `find` 9× c
 is the prerequisite that lets P4's batch mode actually afford twenty lookups.
 
 Suggested PR order: `P0 ✅ → P1 ✅ → A0 ✅ → A1 ✅ → A2 ✅ → A6/A7 ✅ → P2 ✅ → P5 ✅ →
-P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 ✅ → P3 → A3 → docs/bench`.
+P7 ✅ → B1(deps) ✅ → P4(batch mode) ✅ → B2(api) ✅ → A4 ✅ → A5 ✅ → P3 ✅ → A3 → docs/bench`.
 (A0/A1/A2/A6 make `find`/`trail` trustworthy before `deps`/`api` build on top; B tests reuse
 A0's fixture harness and P0's `benchfixture`; `api`/`deps` land on the fast, scope-aware Open
 path from P1/P2 so they start already-fast — P2 extends that to *which* indexes they pay for, so

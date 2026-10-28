@@ -102,11 +102,24 @@ func Open(root string, opts Options) (*Engine, error) {
 				// almost nothing.
 				work := opts.workFor(f.RelPath, f.IsJava)
 				if work == 0 {
+					res.Files[i].Data = nil // nobody will read these bytes: release now
 					continue
 				}
-				data, err := os.ReadFile(f.AbsPath)
-				if err != nil {
-					continue
+				// The scanner validated this file by reading it, so the bytes come
+				// along for the ride; the read here is only the fallback for a
+				// caller that produced File without Data. Before P3 every file was
+				// opened twice, once serially and once here. Dropping the slot's
+				// reference as it is taken lets the content go incrementally
+				// instead of at the end of the scan — carried bytes are the price
+				// of the single read, and this is how that price stays small.
+				data := f.Data
+				res.Files[i].Data = nil
+				if data == nil {
+					b, err := os.ReadFile(f.AbsPath)
+					if err != nil {
+						continue
+					}
+					data = b
 				}
 				var slot fileSlot
 				if work&workVersions != 0 {
@@ -190,15 +203,33 @@ func Open(root string, opts Options) (*Engine, error) {
 	if opts.Caps.Has(CapSymbolIndex) {
 		symFacts = facts
 	}
+	// The four sub-indexes are independent and the inputs are already collected,
+	// so they build concurrently and the serial tail of Open is one build, not
+	// their sum (P3). They are also small — a measured 10 ms worst case at
+	// CapsAll — which is the honest end of this phase: the serial fraction was
+	// never here, it was the matcher and the double read in scan.
+	var (
+		syms      *index.SymbolIndex
+		textIdx   *index.TextIndex
+		springIdx *spring.Index
+		cfgIdx    *config.Index
+		idxWG     sync.WaitGroup
+	)
+	idxWG.Add(4)
+	go func() { defer idxWG.Done(); syms = index.Build(symFacts) }()
+	go func() { defer idxWG.Done(); textIdx = index.BuildText(textLines) }()
+	go func() { defer idxWG.Done(); springIdx = spring.Build(springFacts) }()
+	go func() { defer idxWG.Done(); cfgIdx = config.Build(cfgFiles, bindings) }()
+	idxWG.Wait()
 	return &Engine{
 		root:    root,
 		stats:   res.Stats,
 		gen:     1,
 		facts:   facts,
-		syms:    index.Build(symFacts),
-		text:    index.BuildText(textLines),
-		spring:  spring.Build(springFacts),
-		cfg:     config.Build(cfgFiles, bindings),
+		syms:    syms,
+		text:    textIdx,
+		spring:  springIdx,
+		cfg:     cfgIdx,
 		javaVer: javaVer,
 		bootVer: bootVer,
 	}, nil
