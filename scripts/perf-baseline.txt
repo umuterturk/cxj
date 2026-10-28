@@ -1,0 +1,34 @@
+# cxj performance baseline (Track P).
+# Captured 2026-10-28T09:21Z on Apple M3 Pro
+# Mode: deterministic fixture (850 java files). Report-only repo runs are not baselined.
+# Gate: measured <= baseline * tolerance. Tolerance: 1.25 locally, 2.0 in CI
+# (shared CI runners vary too much for a tighter ceiling). Re-capture with
+#   scripts/perf-bench.sh --write-baseline
+# and review it as part of the perf change that moved it.
+brief.cpu_ms=2010
+brief.rss_mb=44
+brief.wall_ms=230
+callees_main.cpu_ms=1190
+callees_main.rss_mb=41
+callees_main.wall_ms=150
+endpoints.cpu_ms=1190
+endpoints.rss_mb=40
+endpoints.wall_ms=150
+find_all.cpu_ms=3140
+find_all.rss_mb=80
+find_all.wall_ms=340
+find_main.cpu_ms=1210
+find_main.rss_mb=43
+find_main.wall_ms=160
+keys.cpu_ms=1190
+keys.rss_mb=42
+keys.wall_ms=150
+startup.cpu_ms=0
+startup.rss_mb=8
+startup.wall_ms=0
+trail_all.cpu_ms=3130
+trail_all.rss_mb=84
+trail_all.wall_ms=340
+trail_main.cpu_ms=1200
+trail_main.rss_mb=42
+trail_main.wall_ms=160

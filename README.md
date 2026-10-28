@@ -27,6 +27,20 @@ go build -o bin/cxj ./cmd/cxj
 ./bin/cxj ask 'who calls OwnerController' --root /path/to/workspace
 ```
 
+## Benchmarks
+
+Cold `Open → query → exit` is the product, so it is measured and gated in CI:
+
+```sh
+./scripts/perf-bench.sh                    # fixture mode; fails on regression
+./scripts/perf-bench.sh --repo /path/to/java/repo   # report-only on a real repo
+go test ./internal/engine -run '^$' -bench Benchmark -benchtime=3x
+```
+
+The fixture is generated from `internal/benchfixture` (deterministic, ~850 Java files), so CI
+numbers are comparable across machines. Baselines live in `scripts/perf-baseline.txt`; move one
+with `--write-baseline` and review the diff.
+
 ## Commands
 
 ```
