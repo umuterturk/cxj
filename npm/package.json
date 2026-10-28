@@ -1,0 +1,47 @@
+{
+  "name": "@umuterturk/cxj",
+  "version": "0.3.2",
+  "description": "Stateless Java/Spring code intelligence CLI for coding agents — cold Open, query, exit. No daemon, no index on disk.",
+  "keywords": [
+    "java",
+    "spring",
+    "spring-boot",
+    "code-intelligence",
+    "static-analysis",
+    "cli",
+    "ai-agents",
+    "coding-agents",
+    "agent-skills"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/umuterturk/cxj#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umuterturk/cxj.git"
+  },
+  "bugs": {
+    "url": "https://github.com/umuterturk/cxj/issues"
+  },
+  "bin": {
+    "cxj": "cli/cxj.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "files": [
+    "cli/cxj.js",
+    "scripts/install.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

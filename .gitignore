@@ -10,3 +10,5 @@ dist/
 needle/*.dylib
 needle/*.so
 needle/*.cact
+# npm wrapper: downloaded platform binary
+npm/native/
