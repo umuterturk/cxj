@@ -37,9 +37,12 @@ Cold `Open → query → exit` is the product, so it is measured and gated in CI
 go test ./internal/engine -run '^$' -bench Benchmark -benchtime=3x
 ```
 
-The fixture is generated from `internal/benchfixture` (deterministic, ~850 Java files), so CI
-numbers are comparable across machines. Baselines live in `scripts/perf-baseline.txt`; move one
-with `--write-baseline` and review the diff.
+The fixture is generated from `internal/benchfixture` (deterministic, ~850 Java files), so
+`cpu_ms` and RSS are comparable across machines and gated everywhere. `wall_ms` is not: it belongs
+to the machine that captured the baseline, so it is gated on developer machines and only reported
+on shared runners (`--gate-wall` forces it). Baselines live in `scripts/perf-baseline.txt`; move
+one with `--write-baseline` and review the diff. Every CI run posts its numbers as a comment on
+the commit.
 
 ## Commands
 

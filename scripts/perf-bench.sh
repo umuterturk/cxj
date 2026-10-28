@@ -22,6 +22,19 @@
 #   CXJ_PERF_TOLERANCE   default 2.0 in CI (CI=true), 1.25 locally
 # Baseline lives in scripts/perf-baseline.txt; commit it with the change that moves
 # a number on purpose, so every perf change is a reviewed diff.
+#
+# What gets gated, and why wall is special:
+#   cpu_ms    gated everywhere. It is total work summed over cores, so it barely moves
+#             with core count: the same fixture at GOMAXPROCS=4 on the machine that owns
+#             the baseline came in *under* a 1.25 tolerance on every case (less worker
+#             sync overhead), which makes it the one metric a shared runner can judge.
+#   wall_ms   gated locally, reported not gated in CI (CXJ_PERF_GATE_WALL=1 forces it).
+#             Wall scales with core count and with whoever else is on the runner: the
+#             same 4-core run was 1.4x on every wall number, which fails even x2.0 once
+#             a runner adds its own contention and a cold page cache for a fresh binary.
+#             Wall is what a user feels, so it stays gated where the baseline was
+#             captured, i.e. on a developer machine.
+#   rss       absolute ceiling, machine-independent: CXJ_PERF_RSS_CEILING_MB (default 250).
 set -euo pipefail
 export LC_ALL=C   # /usr/bin/time must print '.' decimals, not the locale's ','
 
@@ -36,9 +49,13 @@ out_file="$root/dist/perf/results.txt"
 write_baseline=0
 explicit_gate=0
 gate=1
+gate_wall=""   # empty means "decide from the environment"
+md_file=""
 
 usage() {
-  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+  # Everything from line 2 down to the first non-comment line, so the header above is
+  # the help text and cannot silently fall out of date with a hardcoded line range.
+  awk 'NR>1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
   exit 2
 }
 
@@ -49,9 +66,12 @@ while [[ $# -gt 0 ]]; do
     --runs) runs="${2:?--runs needs a number}"; shift 2 ;;
     --baseline) baseline="${2:?--baseline needs a path}"; shift 2 ;;
     --out) out_file="${2:?--out needs a path}"; shift 2 ;;
+    --markdown) md_file="${2:?--markdown needs a path}"; shift 2 ;;
     --write-baseline) write_baseline=1; shift ;;
     --no-gate) gate=0; shift ;;
     --gate) gate=1; explicit_gate=1; shift ;;
+    --gate-wall) gate_wall=1; shift ;;
+    --no-gate-wall) gate_wall=0; shift ;;
     -h|--help) usage ;;
     *) echo "unknown argument: $1" >&2; usage ;;
   esac
@@ -67,6 +87,23 @@ if [[ -z "${CXJ_PERF_TOLERANCE:-}" ]]; then
     CXJ_PERF_TOLERANCE=2.0
   else
     CXJ_PERF_TOLERANCE=1.25
+  fi
+fi
+
+# Wall is only comparable to a baseline captured on comparable hardware, so it is gated
+# where it was captured (a developer machine) and merely reported on shared runners.
+# See the header for the measurement behind that rule.
+in_ci=0
+if [[ "${CI:-false}" == "true" ]]; then
+  in_ci=1
+fi
+if [[ -z "$gate_wall" ]]; then
+  if [[ -n "${CXJ_PERF_GATE_WALL:-}" ]]; then
+    gate_wall="$CXJ_PERF_GATE_WALL"
+  elif [[ $in_ci -eq 1 ]]; then
+    gate_wall=0
+  else
+    gate_wall=1
   fi
 fi
 
@@ -114,7 +151,15 @@ version="$("$binary" version 2>/dev/null | head -1 || echo unknown)"
 # median wall, median cpu (user+sys), max RSS per case. Median not mean: one
 # scheduler hiccup on a laptop should not fail a build.
 results="$(mktemp)"
-trap 'rm -rf "${results:-}"; [[ $cleanup_repo -eq 1 ]] && rm -rf "$repo" || true' EXIT
+gate_log="$(mktemp)"
+trap 'rm -rf "${results:-}" "${gate_log:-}"; [[ $cleanup_repo -eq 1 ]] && rm -rf "$repo" || true' EXIT
+
+# say prints a gate line and records it, so --markdown can reproduce the verdict table
+# without a second parsing pass. A tee to a temp file rather than a pipe: a piped block
+# would run the gate loop in a subshell and lose the fail flag set inside it.
+say() {
+  printf '%s\n' "$*" | tee -a "$gate_log"
+}
 
 median_ms() { # stdin: seconds, one per line -> stdout: median in ms
   awk '{v[NR]=$1}
@@ -169,7 +214,8 @@ echo
 echo "cxj perf bench  ($mode)  runs=$runs  tolerance=$CXJ_PERF_TOLERANCE"
 echo "binary:    $binary ($version)"
 echo "workspace: ${java_count} java files"
-echo "cores:     GOMAXPROCS=${GOMAXPROCS:-default}  nproc=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo '?')"
+cpu_brand="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo 2>/dev/null | sed 's/.*: //' || echo unknown)"
+echo "cores:     GOMAXPROCS=${GOMAXPROCS:-default}  nproc=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo '?')  cpu=$cpu_brand"
 echo
 
 # Every case must point at the measured workspace: without --root the CLI scans
@@ -211,10 +257,14 @@ echo "wrote $out_file"
 if [[ $write_baseline -eq 1 ]]; then
   {
     echo "# cxj performance baseline (Track P)."
-    echo "# Captured $(date -u +%Y-%m-%dT%H:%MZ) on $(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo 2>/dev/null | sed 's/.*: //')"
+    echo "# Captured $(date -u +%Y-%m-%dT%H:%MZ) on ${cpu_brand}, $(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo '?') cores, GOMAXPROCS=${GOMAXPROCS:-default}."
+    echo "# wall_ms numbers in this file belong to that machine: they are gated where they"
+    echo "# were captured and only reported on shared CI runners (see scripts/perf-bench.sh)."
     echo "# Mode: deterministic fixture (${java_count} java files). Report-only repo runs are not baselined."
-    echo "# Gate: measured <= baseline * tolerance. Tolerance: 1.25 locally, 2.0 in CI"
-    echo "# (shared CI runners vary too much for a tighter ceiling). Re-capture with"
+    echo "# Gate: measured <= baseline * tolerance, per metric. Tolerance: 1.25 locally, 2.0 in CI."
+    echo "# cpu_ms and the RSS ceiling are gated everywhere; wall_ms is gated only where it was"
+    echo "# captured (this machine) and reported-only on shared CI runners, which have different"
+    echo "# core counts and contention. --gate-wall forces it. Re-capture with"
     echo "#   scripts/perf-bench.sh --write-baseline"
     echo "# and review it as part of the perf change that moved it."
     sort "$results"
@@ -235,22 +285,35 @@ fi
 
 echo
 echo "gate: comparing against $baseline (x$CXJ_PERF_TOLERANCE)"
+if [[ "$gate_wall" == "1" ]]; then
+  say "gate: wall_ms GATED, cpu_ms GATED, rss ceiling GATED"
+else
+  say "gate: cpu_ms GATED, rss ceiling GATED; wall_ms REPORTED ONLY"
+  say "      (wall depends on core count and runner contention; it is gated locally, on"
+  say "       the machine that owns the baseline. --gate-wall forces it here.)"
+fi
 fail=0
 while IFS='=' read -r key want; do
   case "$key" in ''|'#'*) continue ;; esac
   [[ "$key" == *.rss_mb ]] && continue   # RSS has its own absolute ceiling below
   have="$(awk -F= -v k="$key" '$1==k{print $2; found=1} END{exit !found}' "$results")" || {
-    echo "  MISSING $key (new case needs a baseline line)"; fail=1; continue; }
+    say "  MISSING $key (new case needs a baseline line)"; fail=1; continue; }
   verdict="$(awk -v h="$have" -v w="$want" -v t="$CXJ_PERF_TOLERANCE" 'BEGIN{
     if (w+0 <= 0) print "skip"
     else print (h+0 <= w*t+0.5) ? "ok" : "FAIL" }')"
+  if [[ "$key" == *.wall_ms && "$gate_wall" != "1" && "$verdict" == "FAIL" ]]; then
+    # Reported, not swallowed: the number still deserves to be seen on CI.
+    say "  wall $(printf '%-22s' "$key") ${have}ms (baseline ${want}ms," \
+      "x$(awk -v h="$have" -v w="$want" 'BEGIN{printf "%.1f", (w>0)?h/w:0}')) not gated"
+    continue
+  fi
   if [[ "$verdict" == "skip" ]]; then
-    printf '  skip %-22s baseline is 0\n' "$key"
+    say "  skip $(printf '%-22s' "$key") baseline is 0"
   elif [[ "$verdict" == "FAIL" ]]; then
-    echo "  FAIL $key: ${have}ms > baseline ${want}ms x $CXJ_PERF_TOLERANCE"
+    say "  FAIL $key: ${have}ms > baseline ${want}ms x $CXJ_PERF_TOLERANCE"
     fail=1
   else
-    printf '  ok   %-22s %6sms (baseline %sms)\n' "$key" "$have" "$want"
+    say "  ok   $(printf '%-22s' "$key") ${have}ms (baseline ${want}ms)"
   fi
 done < <(grep -vE '^[[:space:]]*(#|$)' "$baseline")
 
@@ -258,10 +321,57 @@ done < <(grep -vE '^[[:space:]]*(#|$)' "$baseline")
 rss_max="$(awk -F= '/\.rss_mb=/{if($2+0>m) m=$2} END{printf "%.0f", m+0}' "$results")"
 rss_ceiling="${CXJ_PERF_RSS_CEILING_MB:-250}"
 if [[ "${rss_max:-0}" -gt "$rss_ceiling" ]]; then
-  echo "  FAIL peak rss: ${rss_max}MB > ${rss_ceiling}MB ceiling"
+  say "  FAIL peak rss: ${rss_max}MB > ${rss_ceiling}MB ceiling"
   fail=1
 else
-  printf '  ok   %-22s %6sMB (ceiling %sMB)\n' "peak_rss" "${rss_max:-0}" "$rss_ceiling"
+  say "  ok   $(printf '%-22s' peak_rss) ${rss_max}MB (ceiling ${rss_ceiling}MB)"
+fi
+
+# ------------------------------------------------------------------ markdown
+# CI publishes this as a commit comment. Job logs and artifacts both need a token to
+# read, which means the numbers from a failing gate are invisible to anyone who has not
+# been granted the repository; a comment on the commit is readable by the public API
+# and makes "the perf job is red" an actionable statement.
+if [[ -n "$md_file" ]]; then
+  {
+    if [[ $fail -eq 0 ]]; then
+      echo "### cxj perf gate: green"
+    else
+      echo "### cxj perf gate: FAILED"
+    fi
+    echo
+    echo "- mode \`$mode\` (fixture · ${java_count} java files) · runs=$runs · tolerance x$CXJ_PERF_TOLERANCE"
+    echo "- cpu \`$cpu_brand\` · nproc $(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo '?') · GOMAXPROCS=${GOMAXPROCS:-default}"
+    if [[ "$gate_wall" == "1" ]]; then
+      echo "- \`wall_ms\` **gated**"
+    else
+      echo "- \`wall_ms\` reported only (gated on developer machines, where the baseline lives)"
+    fi
+    echo
+    echo "| case | wall ms | cpu ms | rss MB |"
+    echo "|---|---:|---:|---:|"
+    awk -F= '
+      /^#/ || NF != 2 { next }
+      { dot = index($1, "."); c = substr($1, 1, dot - 1)
+        cases[c SUBSEP substr($1, dot + 1)] = $2
+        if (!(c in seen)) { seen[c] = 1; names[n++] = c } }
+      END {
+        for (i = 0; i < n; i++) for (j = i + 1; j < n; j++)
+          if (names[j] < names[i]) { t = names[i]; names[i] = names[j]; names[j] = t }
+        for (i = 0; i < n; i++) {
+          c = names[i]
+          printf "| `%s` | %s | %s | %s |\n", c,
+            ((c SUBSEP "wall_ms") in cases) ? cases[c SUBSEP "wall_ms"] : "-",
+            ((c SUBSEP "cpu_ms") in cases) ? cases[c SUBSEP "cpu_ms"] : "-",
+            ((c SUBSEP "rss_mb") in cases) ? cases[c SUBSEP "rss_mb"] : "-"
+        }
+      }' "$results"
+    echo
+    echo '```'
+    cat "$gate_log"
+    echo '```'
+  } > "$md_file"
+  echo "wrote $md_file"
 fi
 
 if [[ $fail -ne 0 ]]; then

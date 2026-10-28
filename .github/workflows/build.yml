@@ -37,6 +37,12 @@ jobs:
   # deterministic fixture, never on a real repository.
   perf:
     runs-on: macos-14
+    # pull-requests: write is what the commit-comment endpoint asks for. It is scoped to
+    # this job only, and the comment step is continue-on-error so a permissions surprise
+    # can never mask the gate verdict below.
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -48,13 +54,80 @@ jobs:
         run: |
           go test ./internal/engine -run '^$' -bench Benchmark -benchtime=3x -timeout 20m
 
-      - name: Perf gate (fixture, tolerance x2.0 on shared runners)
-        run: ./scripts/perf-bench.sh --runs 5
+      # The gate's numbers are the entire point of this job, so a red run has to be
+      # readable without a repository token. Job logs and artifacts both answer 403 to
+      # anyone who has not been granted access, which made a failing perf gate
+      # undiagnosable from the outside. The verdict is captured here and published
+      # twice: the step summary (always visible in the UI) and a commit comment
+      # (readable through the public API).
+      # `set +e` and the recorded exit code let the publishing steps run on failure;
+      # the last step re-raises it, so the job still fails exactly when the gate does.
+      - name: Perf gate (fixture; cpu + RSS gated, wall reported)
+        run: |
+          set +e
+          ./scripts/perf-bench.sh --runs 5 --markdown perf-summary.md 2>&1 | tee perf-gate.log
+          echo "perf_gate_exit=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Add the verdict to the step summary
+        if: always()
+        run: |
+          if [ -s perf-summary.md ]; then
+            cat perf-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Do not let a missing file fail *this* step: the gate step's own exit code is
+            # the verdict, and a second unrelated failure would bury it.
+            echo '::warning::perf-summary.md is missing; the gate step did not reach its verdict.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish perf numbers on the commit
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs')
+            let body
+            try {
+              body = fs.readFileSync('perf-summary.md', 'utf8')
+            } catch (e) {
+              body = '_The perf gate produced no summary. See the "Perf gate" step log._'
+            }
+            const marker = '<!-- cxj-perf-gate -->'
+            const { owner, repo } = context.repo
+            const sha = (context.payload.pull_request && context.payload.pull_request.head.sha) || context.sha
+            const comment = `${marker}\n${body}`
+            // The docs describe this response as an object ({ comments: [...] }); the live
+            // API returns a bare list. Both shapes are accepted rather than picked, because
+            // whichever way it changes the failure would be silent-ish: an object-only read
+            // throws on a list, a list-only read silently finds nothing and double-posts.
+            const { data } = await github.rest.repos.listCommentsForCommit({
+              owner, repo, commit_sha: sha, per_page: 100,
+            })
+            const all = Array.isArray(data) ? data : (data && data.comments) || []
+            const existing = all.filter((c) => c.body.includes(marker))
+            if (existing.length) {
+              await github.rest.repos.updateCommitComment({ owner, repo, comment_id: existing[0].id, body: comment })
+            } else {
+              await github.rest.repos.createCommitComment({ owner, repo, commit_sha: sha, body: comment })
+            }
+
+      - name: Fail on the gate verdict
+        run: |
+          if [ "${perf_gate_exit:-1}" != "0" ]; then
+            echo "::error::perf gate failed (exit ${perf_gate_exit}); see the perf-summary comment on this commit"
+            exit 1
+          fi
+          echo "perf gate green"
 
       - name: Upload perf results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: perf-results
-          path: dist/perf/results.txt
+          path: |
+            dist/perf/results.txt
+            perf-summary.md
+            perf-gate.log
           if-no-files-found: warn

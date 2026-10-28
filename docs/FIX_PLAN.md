@@ -153,6 +153,8 @@ serial fraction — not more cores.**
   `scripts/perf-baseline.txt`, so every intended perf move is a reviewed diff. Two honest notes:
   real repositories are measured **report-only** (laptop-to-laptop variance is too high to gate
   on), and the gate was verified by forcing it red (16 `FAIL` lines, exit 1) as well as green.
+  (It also gated `wall_ms` on CI, which the first P2 push proved unworkable on shared runners —
+  see §3.3.1.)
 - **P1 — Parse less: skip test sources unless needed (P-RC1). ✅ shipped.** `--scope all|main|test`
   with main as the default for navigational commands; the filter runs *before* `ReadFile`, so it
   skips the I/O and the Tree-sitter parse, not just the indexing. A miss on a main-scoped query
@@ -241,6 +243,55 @@ On the pinned repo, at `GOMAXPROCS=8`, warm cache, p95 of 10 runs:
 Rationale: an agent doing ~30 lookups/task should spend **well under a second total**, not
 tens of seconds. These ceilings are set *after* P1 so they are achievable, and are checked in
 CI as a hard gate.
+
+#### 3.3.1 What CI actually gates (found the hard way)
+
+The first CI run of the P2 push failed the `perf` job while every test passed, and the failure was
+undiagnosable from outside: **Actions job logs and artifacts both answer 403 without a token.**
+Two separate fixes, one for the gate and one for the blindness.
+
+The gate failed on `wall_ms`, and the cause is the machine. Reproducing the only part of CI's
+condition that can be reproduced locally — same machine, same binary, same baseline, just
+`GOMAXPROCS=4` — every `cpu_ms` came in **under** the tight 1.25 local tolerance while **every**
+`wall_ms` blew through it:
+
+| Case | baseline wall | @4 cores | ratio | baseline cpu | cpu @4 cores | ratio |
+|---|---|---|---|---|---|---|
+| `brief` | 150 ms | 210 ms | 1.40× | 1130 ms | 690 ms | **0.61×** |
+| `trail --scope all` | 190 ms | 270 ms | 1.42× | 1510 ms | 930 ms | **0.62×** |
+| `find --scope all` | 150 ms | 190 ms | 1.27× | 940 ms | 580 ms | **0.62×** |
+| `trail` main scope | 100 ms | 130 ms | 1.30× | 640 ms | 380 ms | **0.59×** |
+
+The two metrics disagree because they measure different things. `cpu_ms` is work summed over
+cores: it barely moves with core count, and here it went *down* with fewer cores because the
+sync and spin overhead of 12 workers disappears. `wall_ms` is latency, which scales with core
+count, with whoever else is on the runner, and with a cold page cache loading a freshly built
+binary. CI runs `macos-14` (8-core M1); the baseline belongs to an M3 Pro with 12 cores. A
+shared runner cannot judge latency against a laptop's numbers, at any tolerance that still
+detects real damage.
+
+So the enforcement is split by metric, not by convenience:
+
+| Metric | Locally | On CI | Why |
+|---|---|---|---|
+| `cpu_ms` | gated (×1.25) | **gated** (×2.0) | total work; insensitive to cores |
+| `rss_mb` | gated (250 MB ceiling) | **gated** | absolute, machine-independent |
+| `wall_ms` | **gated** (×1.25) | reported, not gated | belongs to the machine that captured it |
+
+`--gate-wall` / `--no-gate-wall` (or `CXJ_PERF_GATE_WALL=1`) override it either way, and the
+banner states which mode ran so a green run cannot be misread as a wall-time approval.
+
+**The accepted cost:** a change that adds no work but serializes it — same `cpu_ms`, worse
+latency — passes CI and only fails on a developer machine. That is the trade for a gate that
+stays green when nothing is wrong; a wall gate on shared hardware fails often enough that people
+start ignoring it, which is worse than a hole.
+
+**The blindness fix:** the gate can write a markdown verdict (`--markdown <path>`) and the `perf`
+job publishes it as a commit comment and in the step summary, with `if: always()`. A commit
+comment is readable through the public API, so "the perf job is red" became an actionable
+sentence without anyone granting repository access. The comment step is `continue-on-error`, so a
+permissions problem cannot mask the gate result, and the recorded exit code is re-raised by a
+final step so the job still fails exactly when the gate does.
 
 ### 3.4 Battery/thermals note (this is a laptop tool)
 Because cores past ~4 add CPU without wall-time benefit, prefer to cap effective workers at the
@@ -658,7 +709,8 @@ case at real file sizes rather than a bigger fixture.
 
 Cross-cutting: shared compact formatting + certainty tiers in `internal/ir`; new usage strings;
 `SKILL.md`/README examples for `deps`/`api`, the `--scope` flag, and "pass qualified symbols to
-callers/callees"; CI runs `go test ./...` **and the `perf` gate job** (`.github/workflows/build.yml`);
+callers/callees"; CI runs `go test ./...` **and the `perf` gate job** (`.github/workflows/build.yml`,
+gate policy in §3.3.1);
 `scripts/perf-bench.sh` (hard gate) is in place — still to add: `scripts/accuracy-benchmark.sh`
 + `scripts/context7-bench.sh`.
 
