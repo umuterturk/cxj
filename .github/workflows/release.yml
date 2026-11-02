@@ -54,6 +54,10 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          # Explicit cgo: Go disables it by default when GOARCH differs from
+          # the host, which silently excludes the tree-sitter binding files
+          # (they are cgo-only) and dies with "undefined: tree_sitter.Node".
+          CGO_ENABLED: 1
         run: |
           mkdir -p dist
           if [ "$GOOS" = darwin ] && [ "$GOARCH" = amd64 ] && [ "$(uname -m)" = arm64 ]; then
