@@ -26,8 +26,8 @@ npx @umutert/cxj brief
 | linux / x64         | `cxj-linux-x86_64.zip`      |
 | linux / arm64       | `cxj-linux-arm64.zip`       |
 
-The wrapper version tracks the cxj release (`0.3.2` installs
-`v0.3.2`); set `CXJ_VERSION` to pin a different one. `cxj update` still works
+The wrapper version tracks the cxj release (`0.4.0` installs
+`v0.4.0`); set `CXJ_VERSION` to pin a different one. `cxj update` still works
 after install and upgrades the same binary in place.
 
 Requires `unzip` on PATH (present by default on macOS and most Linux distros).

@@ -1,6 +1,6 @@
 {
   "name": "@umutert/cxj",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Stateless Java/Spring code intelligence CLI for coding agents — cold Open, query, exit. No daemon, no index on disk.",
   "keywords": [
     "java",
