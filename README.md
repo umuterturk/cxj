@@ -91,7 +91,6 @@ one cold open). From then on it navigates your repo instead of grepping it.
 | `api <dep> [Type]` | That dependency's real API *at your resolved version*, plus your call sites |
 | `map` | The whole repo as a symbol map |
 | `batch` | Twenty JSONL queries, one cold open (~17× cheaper than separate calls) |
-| `ask <question>` | Natural-language layer; optional — prompts to download its ~35 MB files once |
 
 All of them: `--root` any repo, `--json` for machine output, `--example` for a demo.
 `cxj COMMAND --help` is the reference; the output itself is the contract.

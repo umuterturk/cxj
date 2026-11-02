@@ -5,6 +5,17 @@ All notable changes to `cxj`. The format is loosely based on
 adheres to semantic versioning, and every entry is backed by a commit you
 can read.
 
+## [Unreleased]
+
+### Removed
+- **`ask` and the Needle native engine are gone.** `ask` was the optional
+  natural-language layer that loaded a ~35 MB downloaded model (native
+  library + weights) to route a vague question onto other commands. In
+  practice agents (and people) always ran the commands directly, so the
+  layer carried its entire downside — a download prompt, a purego runtime
+  dependency, a second help surface — and no upside over `brief` +
+  `trail`. `cxj ask` now reports unknown command like any typo.
+
 ## [0.3.2] - 2026-10-29
 
 ### Added

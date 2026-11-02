@@ -112,8 +112,6 @@ var commandCaps = map[string]Capabilities{
 	"context":   CapsSpring,
 	"keys":      CapsConfigCmd,
 	"config":    CapsConfigCmd,
-	// Composes several commands in one process.
-	"ask": CapsAll,
 	// Counters come off the scan, and nothing else is read.
 	"status": 0,
 	// deps opens no snapshot at all: it reads the build files and lists the local

@@ -62,8 +62,8 @@ type batchSummary struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// batchable maps every command a batch may run. `ask` is excluded on purpose: it
-// shells out to Needle and can prompt. install/version/update never open a workspace.
+// batchable maps every command a batch may run. install/version/update never
+// open a workspace, so they are not batch questions.
 var batchable = map[string]bool{
 	"brief": true, "find": true, "show": true, "outline": true, "map": true,
 	"trail": true, "references": true, "callers": true, "callees": true,

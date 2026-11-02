@@ -8,11 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/umuterturk/cxj/internal/ask"
 	"github.com/umuterturk/cxj/internal/cli"
 	"github.com/umuterturk/cxj/internal/engine"
 	"github.com/umuterturk/cxj/internal/ir"
-	"github.com/umuterturk/cxj/internal/needle"
 	"github.com/umuterturk/cxj/internal/scan"
 	"github.com/umuterturk/cxj/internal/skill"
 	"github.com/umuterturk/cxj/internal/update"
@@ -61,8 +59,6 @@ func main() {
 		os.Exit(runBatch(os.Args[2:]))
 	case "api":
 		os.Exit(runApi(os.Args[2:]))
-	case "ask":
-		os.Exit(runAsk(os.Args[2:]))
 	case "install":
 		os.Exit(runInstall(os.Args[2:]))
 	case "version":
@@ -100,7 +96,6 @@ func usage() {
   cxj deps [FILTER] [--root PATH] [--tier declared|resolved|managed|cached|unknown] [--limit 40] [--m2 DIR] [--gradle DIR] [--cache DIR] [--json]
   cxj batch [--root PATH] [--scope all|main|test]   # JSONL queries on stdin, ONE Open for all
   cxj api DEP [Type|member] [--root PATH] [--sources-only|--from-repo-only] [--limit 40] [--members 80] [--json]
-  cxj ask QUESTION [--root PATH] [--download] [--show-command] [--verbose] [--json]
   cxj install               # project: .agents/skills + .claude/skills symlink
   cxj install -g            # global: ~/.agents/skills + symlink; /usr/local/bin/cxj
   cxj version [--json]
@@ -284,7 +279,7 @@ func addCommon(fs *flag.FlagSet) *common {
 	c.root = fs.String("root", "", "workspace root (default: current directory)")
 	c.asJSON = fs.Bool("json", false, "emit JSON")
 	c.compact = fs.Bool("compact", false, "strip JSON to path,line,symbol")
-	c.verbose = fs.Bool("verbose", false, "extra columns (text) or full ask data")
+	c.verbose = fs.Bool("verbose", false, "extra columns (text) or untrimmed detail (json)")
 	c.example = fs.Bool("example", false, "print workspace examples and exit")
 	c.scope = fs.String("scope", "", "source scope: all|main|test (default: per command)")
 	fs.Var(&c.excludes, "exclude", "repeatable path/glob exclusion")
@@ -729,48 +724,6 @@ func runContext(args []string) int {
 		return failOpen(err)
 	}
 	return cli.NewPrinter().JSON(eng.Context(*symbol, *budget))
-}
-
-func runAsk(args []string) int {
-	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	c := addCommon(fs)
-	showCommand := fs.Bool(ask.ShowCommandFlag, false, "prefix the reconstructed cxj command when a tool param is set")
-	download := fs.Bool("download", false, "download Needle 3 without prompting")
-	flagArgs, positional, err := cli.SplitArgs(args)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 2
-	}
-	if err := fs.Parse(flagArgs); err != nil {
-		return 2
-	}
-	if *c.example {
-		return printExamples(c, "ask")
-	}
-	if len(positional) < 1 {
-		fmt.Fprintln(os.Stderr, "question required")
-		return 2
-	}
-	if err := needle.Ensure(os.Stdin, os.Stderr, *download); err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 1
-	}
-	eng, err := openEngine(c)
-	if err != nil {
-		return failOpen(err)
-	}
-	reply, err := ask.Run(eng, strings.Join(positional, " "), *showCommand, *c.verbose)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 1
-	}
-	p := cli.NewPrinter()
-	if *c.asJSON {
-		return p.JSON(reply)
-	}
-	fmt.Fprintln(p.Out, reply.Answer)
-	return 0
 }
 
 func runStatus(args []string) int {

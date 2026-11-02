@@ -131,15 +131,6 @@ func (e *Engine) Examples(cmd string) []Example {
 			{Cmd: "cxj brief", Why: "prefer this over status for orientation"},
 			{Cmd: "cxj status", Why: "file counts and heap only"},
 		}
-	case "ask":
-		var out []Example
-		if s.called != "" {
-			out = append(out, Example{Cmd: "cxj ask " + quote("who calls "+simple(s.called)), Why: "routes to callers"})
-		} else if s.method != "" {
-			out = append(out, Example{Cmd: "cxj ask " + quote("who calls "+simple(s.method)), Why: "routes to callers"})
-		}
-		out = append(out, Example{Cmd: "cxj ask " + quote("what is this project"), Why: "routes to brief"})
-		return cap3(out)
 	case "install":
 		return []Example{
 			{Cmd: "cxj install", Why: "project .agents/skills + .claude symlink"},
