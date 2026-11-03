@@ -9,8 +9,7 @@ cxj is **stateless**: one-shot `Open → query → exit`. No daemon, no persiste
 index, no embeddings, no cache — speed comes from doing less work, never from
 holding state. Proposals that add persistent state will be rejected on sight;
 that is the product. The full design record is
-[docs/FIX_PLAN.md](docs/FIX_PLAN.md), and the distribution record is
-[docs/MARKET_PLAN.md](docs/MARKET_PLAN.md).
+[docs/FIX_PLAN.md](docs/FIX_PLAN.md).
 
 ## Development loop
 

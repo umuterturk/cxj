@@ -238,7 +238,6 @@ go test ./... && ./scripts/perf-bench.sh
 
 - [CHANGELOG.md](CHANGELOG.md) — every release, organized from the commit history
 - [docs/FIX_PLAN.md](docs/FIX_PLAN.md) — the full audit-to-fix record (P/A/B tracks)
-- [docs/MARKET_PLAN.md](docs/MARKET_PLAN.md) — the public distribution + marketing plan
 - The bundled agent skill — [`internal/skill/SKILL.md`](internal/skill/SKILL.md), what `cxj install` writes
 
 **Status:** v0.4.x — the navigation, dependency, and distribution surfaces are all

@@ -9,3 +9,7 @@ dist/
 .claude/
 # npm wrapper: downloaded platform binary
 npm/native/
+
+# The distribution + marketing plan is kept private, outside the repo
+# (~/mycode/CXJ_MARKET_PLAN.md). Guard against accidental re-adds.
+docs/MARKET_PLAN.md

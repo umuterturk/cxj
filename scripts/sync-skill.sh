@@ -63,8 +63,7 @@ done
 
 if [ "$check" -eq 1 ]; then
   # JSON shape is checked cheaply here; the authoritative `claude plugin
-  # validate` is a release-day step (it needs the Claude Code CLI), recorded
-  # in docs/MARKET_PLAN.md T1.3.
+  # validate` is a release-day step (it needs the Claude Code CLI).
   python3 -c 'import json,sys; [json.load(open(p)) for p in sys.argv[1:]]' \
     .claude-plugin/marketplace.json plugins/cxj/.claude-plugin/plugin.json
 fi
