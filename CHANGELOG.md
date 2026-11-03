@@ -7,6 +7,21 @@ can read.
 
 ## [Unreleased]
 
+### Added
+- **Claude Code plugin + own marketplace.** `.claude-plugin/marketplace.json`
+  lists `plugins/cxj`, a plugin whose single component is the same
+  `SKILL.md` the binary embeds. Install: `claude plugin marketplace add
+  umuterturk/cxj`, then `claude plugin install cxj@cxj`.
+- **skills.sh layout.** Top-level `skills/cxj/SKILL.md` makes
+  `npx skills add umuterturk/cxj` resolve across Claude Code, Codex,
+  Copilot, and OpenCode.
+- `scripts/sync-skill.sh` mirrors the canonical
+  `internal/skill/SKILL.md` to both distribution copies and `--check`s
+  byte-identity plus manifest-vs-CHANGELOG version agreement in CI, so a
+  listing can never drift from what the tool actually does.
+
+## [0.4.0] - 2026-11-02
+
 ### Removed
 - **`ask` and the Needle native engine are gone.** `ask` was the optional
   natural-language layer that loaded a ~35 MB downloaded model (native

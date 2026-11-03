@@ -19,6 +19,15 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # The marketplace plugin and the skills.sh mirror must be byte-identical
+      # to the skill the binary embeds, and the plugin manifests must carry the
+      # newest released version — a listing that drifts from the tool is a
+      # listing that lies. Authoritative `claude plugin validate` stays a
+      # release-day step (needs the Claude Code CLI); this catches rot on every
+      # push.
+      - name: Skill mirrors + manifest versions in sync
+        run: ./scripts/sync-skill.sh --check
+
       - name: Build
         run: |
           mkdir -p dist/macos-arm64

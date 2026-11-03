@@ -1,6 +1,6 @@
 ---
 name: cxj
-description: Token-cheap Java/Spring workspace queries via the cxj CLI (j = Java). Start with brief, then trail.
+description: Stateless Java/Spring code intelligence via the cxj CLI (j = Java) — callers, endpoints, beans, config keys, dependency truth, cold-open from source with no index. Start with brief, then trail.
 ---
 # cxj CLI
 

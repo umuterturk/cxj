@@ -1,0 +1,19 @@
+{
+  "name": "cxj",
+  "description": "Stateless Java/Spring code intelligence for coding agents. One plugin: the cxj CLI taught as a skill — cold-open, no daemon, no index, cannot go stale.",
+  "owner": {
+    "name": "Umut Rıza Ertürk",
+    "url": "https://github.com/umuterturk"
+  },
+  "metadata": {
+    "description": "Marketplace for cxj, the stateless Java/Spring code-intelligence CLI.",
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "cxj",
+      "source": "./plugins/cxj",
+      "description": "Cold-open Java/Spring answers: brief, trail, callers, endpoints, beans, config keys, dependency truth. The harness runs the CLI; no MCP server, no index, cannot serve stale."
+    }
+  ]
+}
