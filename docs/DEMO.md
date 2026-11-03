@@ -71,6 +71,33 @@ gifski --fps 12 -o docs/assets/demo.gif recording.mov
 
 Aim for **under 5 MB** and a seamless loop (end on the last answer, no cursor park).
 
+## Keep your name out of the frame
+
+A shell prompt is `user@host`, and both are personal. Three leak paths, all closed:
+
+1. **The prompt.** Set it to a bare dollar sign in the recording shell:
+
+   ```sh
+   zsh -f                 # start clean, ignoring ~/.zshrc
+   PS1='$ '
+   ./scripts/demo.sh --repo ./spring-petclinic
+   ```
+
+   `zsh -f` skips your prompt theme; `PATH` is inherited, so `cxj` still resolves.
+
+2. **The `cd` line.** `demo.sh` prints only the checkout's directory name
+   (`$ cd spring-petclinic`), never the absolute path.
+
+3. **Window chrome.** QuickTime captures the title bar, which often shows
+   `user@host: ~/dir`. Either hide the title bar, crop it in the recording, or use
+   `asciinema rec --command …`, which has no chrome and never draws a prompt at all.
+
+Verify before publishing — the asciinema cast is plain text, so it greps:
+
+```sh
+grep -c "$(whoami)" demo.cast        # expect 0
+```
+
 ## Where it goes
 
 - Top of [README](../README.md), under the tagline — the first thing a visitor sees
