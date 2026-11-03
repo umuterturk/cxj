@@ -72,7 +72,10 @@ cxj install -g    # symlinks cxj + writes the agent skill to ~/.agents/skills/cx
 
 The skill teaches the agent the loop — `brief` → `trail`/`callers` → `show` — the
 scope rules, the certainty labels, and `batch` mode (twenty lookups for the price of
-one cold open). From then on it navigates your repo instead of grepping it.
+one cold open). From then on it navigates your repo instead of grepping it. The same
+skill ships through the harness-native channels too: `/plugin install cxj
+--marketplace umuterturk/cxj` inside Claude Code, or `npx skills add
+umuterturk/cxj` across agents — see [Install](#install).
 
 ## Commands
 
@@ -151,10 +154,49 @@ the old binary.**
 | Homebrew | `brew install umuterturk/tap/cxj` |
 | npm | `npm i -g @umutert/cxj` · one-off: `npx @umutert/cxj` |
 | Go | `go install github.com/umuterturk/cxj/cmd/cxj@latest` (needs a C toolchain for tree-sitter) |
+| Claude Code | `/plugin install cxj --marketplace umuterturk/cxj` — or the two-step: `claude plugin marketplace add umuterturk/cxj` then `claude plugin install cxj@cxj` |
+| Any agent, via skills.sh | `npx skills add umuterturk/cxj` (Claude Code, Codex, Copilot, OpenCode) |
 | Release assets | `macos-arm64` · `macos-x86_64` · `linux-x86_64` · `linux-arm64` zips — [Releases](https://github.com/umuterturk/cxj/releases) |
 
-`cxj update` upgrades in place from the newest release asset for your platform.
-Windows is not supported (the agent-skill targets are macOS/Linux).
+Every channel delivers the same binary and the same
+[agent skill](internal/skill/SKILL.md); `cxj install` is the do-it-yourself
+version (writes `.agents/skills` and symlinks `.claude/skills`; `-g` does the
+same under `$HOME`). `cxj update` upgrades in place from the newest release
+asset for your platform. Windows is not supported (the agent-skill targets are
+macOS/Linux).
+
+### Verify the binaries
+
+Assets are built from the tagged source on public GitHub Actions runners
+([release.yml](.github/workflows/release.yml)) and smoke-tested on their own
+runner before upload. The zips are unsigned, so their SHA-256 digests are the
+contract — published here and pinned by the Homebrew formula:
+
+| v0.4.0 asset | SHA-256 |
+| --- | --- |
+| `cxj-macos-arm64.zip` | `f557ad67610d6b08fb35002c332efa6605f1cd61a3c02f72885a8f4e9c2cd0ee` |
+| `cxj-macos-x86_64.zip` | `3c7a66fb5121611276c31543644c17dada60fd8ea3d44cadd8131dcf6dfe3a8e` |
+| `cxj-linux-x86_64.zip` | `aebce3c75b6a2b395c93a42c6d9a894a98be96bd611627a0f6db444df267f75b` |
+| `cxj-linux-arm64.zip` | `986cd706aaa885def59703894cb85a928641b141c90d94fac343a8a02fa0a91e` |
+
+```sh
+shasum -a 256 cxj-macos-arm64.zip    # macOS
+sha256sum   cxj-linux-x86_64.zip     # Linux
+```
+
+macOS Gatekeeper: the quarantine attribute is added by browsers, so a
+zip-downloaded binary is the one channel that may prompt "unidentified
+developer" on first run — clear it with
+`xattr -d com.apple.quarantine ./cxj`. Homebrew and npm fetch the binary
+without ever acquiring the attribute; nothing to do there.
+
+### Uninstall
+
+`brew uninstall umuterturk/tap/cxj` · `npm rm -g @umutert/cxj` ·
+`rm "$(which cxj)"`. The only other footprint is the skill folders:
+`.agents/skills/cxj` (plus the `.claude/skills` symlink) and/or
+`~/.agents/skills/cxj`. That is everything — cxj keeps no state, so there is
+nothing else left to remove.
 
 ## Build from source
 
@@ -168,9 +210,10 @@ go test ./... && ./scripts/perf-bench.sh
 
 - [CHANGELOG.md](CHANGELOG.md) — every release, organized from the commit history
 - [docs/FIX_PLAN.md](docs/FIX_PLAN.md) — the full audit-to-fix record (P/A/B tracks)
+- [docs/MARKET_PLAN.md](docs/MARKET_PLAN.md) — the public distribution + marketing plan
 - The bundled agent skill — [`internal/skill/SKILL.md`](internal/skill/SKILL.md), what `cxj install` writes
 
-**Status:** v0.3.x — the navigation, dependency, and distribution surfaces are all
+**Status:** v0.4.x — the navigation, dependency, and distribution surfaces are all
 shipped and CI-gated; the tool is in daily use on production Java 25 / Spring Boot 4
 services. Bugs: [issues](https://github.com/umuterturk/cxj/issues) — measured
 reproductions (command, repo shape, expected vs actual) get fixed fastest, because
