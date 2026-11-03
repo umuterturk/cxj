@@ -184,7 +184,7 @@ the old binary.**
 | npm | `npm i -g @umutert/cxj` · one-off: `npx @umutert/cxj` |
 | Go | `go install github.com/umuterturk/cxj/cmd/cxj@latest` (needs a C toolchain for tree-sitter) |
 | Claude Code | `/plugin install cxj --marketplace umuterturk/cxj` — or the two-step: `claude plugin marketplace add umuterturk/cxj` then `claude plugin install cxj@cxj` |
-| Any agent, via skills.sh | `npx skills add umuterturk/cxj` (Claude Code, Codex, Copilot, OpenCode) |
+| Any agent, via skills.sh | `npx skills add umuterturk/cxj` (Claude Code, Codex, Copilot, OpenCode, pi, …) |
 | Release assets | `macos-arm64` · `macos-x86_64` · `linux-x86_64` · `linux-arm64` zips — [Releases](https://github.com/umuterturk/cxj/releases) |
 
 Every channel delivers the same binary and the same
