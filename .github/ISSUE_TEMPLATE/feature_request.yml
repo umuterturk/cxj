@@ -1,0 +1,42 @@
+name: Feature request
+description: A capability the command surface should have
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        cxj's surface is commands an agent calls cold, thousands of times a
+        week. The bar for a new command (or a new flag) is "an agent answers
+        a real question with it that it cannot answer cheaply today."
+  - type: textarea
+    id: story
+    attributes:
+      label: The question you cannot answer cheaply
+      description: a real moment — what you (or your agent) wanted, and what you resort to instead
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed command and output
+      description: command line, example output in cxj's shape (certainty labels, caps, exit codes)
+      render: sh
+    validations:
+      required: true
+  - type: dropdown
+    id: state
+    attributes:
+      label: Does answering this require persistent state?
+      options:
+        - "No — cold Open answers it (the expected answer)"
+        - "Yes / unsure — explain below"
+    validations:
+      required: true
+  - type: textarea
+    id: why-state
+    attributes:
+      label: If state seemed required, why the stateless answer isn't good enough
+      description: |
+        cxj is stateless by law: speed comes from doing less work, never from
+        holding state. Most "needs an index" requests dissolve into "reads
+        more of the scan it already does."

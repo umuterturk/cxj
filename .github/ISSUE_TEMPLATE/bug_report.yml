@@ -1,0 +1,75 @@
+name: Bug report
+description: A measured reproduction — this is how every cxj bug has been found and fixed
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Measured reproductions get fixed fastest: command, repo shape, actual
+        vs expected. Every bug in this project's history arrived in exactly
+        this shape.
+  - type: input
+    id: version
+    attributes:
+      label: cxj version
+      description: output of `cxj version`
+      placeholder: cxj v0.4.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [macos-arm64, macos-x86_64, linux-x86_64, linux-arm64, other]
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: Repo shape
+      description: |
+        output of `cxj status` plus the first two lines of `cxj brief`
+        (counters only — no code).
+      render: text
+      placeholder: |
+        status=ready indexed_files=180 indexed_java_files=139 generation=1
+        kind=spring java=25 spring_boot=4.1.0
+        main_files=91 types=83 test_classes=52
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command
+      description: the full command line, run from the repo root
+      render: sh
+      placeholder: cxj trail com.acme.Foo.bar
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual output
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+      description: and why you believe it — a symbol you can see, a call the compiler proves
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: reproduces with `--scope all`
+        - label: reproduces with `--json` (if output-shaped)
+        - label: only reproduces on test sources
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: recent edits, unusual build layout, generated sources — anything the shape doesn't show

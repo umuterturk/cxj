@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How the project works
+    url: https://github.com/umuterturk/cxj/blob/main/CONTRIBUTING.md
+    about: the no-state law, the development loop, and what makes a fix fast
+  - name: Design record
+    url: https://github.com/umuterturk/cxj/blob/main/docs/FIX_PLAN.md
+    about: the audit-to-fix history behind every current behavior
