@@ -10,7 +10,7 @@
 [![skills.sh](https://skills.sh/b/umuterturk/cxj)](https://skills.sh/umuterturk/cxj)
 ![Platforms: macOS / Linux](https://img.shields.io/badge/platforms-macos_%E2%80%A2_linux-lightgrey)
 
-<img src="docs/assets/demo.gif" alt="cxj on spring-petclinic: brief lists every route and persisted entity; trail shows a handler's POST route, its callees and the test that covers it; callers resolves a repository method to its derived name and lists all twelve uses, tests included." width="100%">
+<img src="docs/assets/demo.gif" alt="cxj on spring-petclinic: brief lists every route and persisted entity; trail shows a handler's POST route, its callees and the test that covers it; callers resolves a repository method to its derived name and lists every use, twelve of them in tests." width="100%">
 
 `cxj` answers "who calls this", "what does this endpoint touch", "which version am I
 really on" — about **your** Java/Spring codebase — in milliseconds, from a cold start,
