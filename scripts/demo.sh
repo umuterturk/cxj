@@ -40,8 +40,9 @@ repo="$(cd "$repo" && pwd)"
 clear_screen() { printf '\033[2J\033[H'; }
 
 # A bare prompt on a cleared screen is what the recording should start from.
+# Print only the directory name: the absolute path carries the user's home.
 clear_screen
-printf '$ cd %s\n' "$repo"
+printf '$ cd %s\n' "$(basename "$repo")"
 cd "$repo"
 sleep "$pause_cmd"
 
