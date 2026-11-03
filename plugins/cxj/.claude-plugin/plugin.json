@@ -2,7 +2,7 @@
   "name": "cxj",
   "displayName": "cxj — stateless Java/Spring code intelligence",
   "version": "0.4.0",
-  "description": "Cold-open Java/Spring answers for coding agents: who calls what (typed, with certainty labels), HTTP endpoints, beans, config keys, dependency versions and their real APIs — from a fresh read of your source every time. No daemon, no embeddings, no on-disk index, so nothing can go stale. Requires the cxj binary (brew install umuterturk/tap/cxj, npm i -g @umutert/cxj, or a release asset).",
+  "description": "Cold-open Java/Spring code intelligence with five checkable properties: the only latency is one cold read (30-250 ms on production services; 2.4 s on 1.5M-line Spring Framework); trusts only your source (tree-sitter, certainty labels, no embeddings); read-safe and write-safe (query commands write nothing and touch no network — nothing to go stale, nothing to leak); honest about repo scale (persistent graphs are for 28M-LOC outliers); and Spring is the domain model (routes, beans, qualifiers, profiles, config keys, resolved dependency versions). Requires the cxj binary: brew install umuterturk/tap/cxj, npm i -g @umutert/cxj, or a release asset.",
   "author": {
     "name": "Umut Rıza Ertürk",
     "url": "https://github.com/umuterturk"

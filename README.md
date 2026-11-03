@@ -17,27 +17,50 @@ The law of the project: **speed comes from doing less work, never from state.** 
 invocation is a cold `Open → query → exit`. Nothing survives the process, so there is
 nothing to invalidate, nothing to serve you a stale answer, and nothing to trust wrong.
 
+## Five checkable promises
+
+Every line below is a command you can run, not an adjective:
+
+1. **The only latency is one cold read of your repo.** `brief` answers in
+   30–250 ms on 900-file production Spring services — and in **2.4 s on Spring
+   Framework itself** (1.53M lines, 9,295 files), from a standing start. There is no
+   first-session index to wait for and nothing to keep warm, because there is no
+   index and nothing to warm.
+2. **Trusts the code. Only the code.** tree-sitter parses your sources; `callers`
+   resolves the receiver's *declared type*; every answer carries its `exact` /
+   `candidate` / `ambiguous` label and its `(+K more)` caps. No embeddings, no
+   ranking model, no LSP heuristics — nothing that can be plausibly wrong.
+3. **Read-safe and write-safe.** Query commands read your repo and write nothing:
+   no index on disk, no cache, no telemetry, no network — your source never leaves
+   the machine (`install` and `update` are the only commands that touch disk or the
+   net, and you type those). Safe to point at anything. And safe to edit *against*:
+   answers are re-derived from the bytes on disk now, so an agent's next change is
+   never grounded in a stale view.
+4. **The pragmatist's bet: your repo is not the Linux kernel.** Persistent graphs
+   are infrastructure for 28M-LOC outliers and their minutes of indexing. The real
+   Java world lives under a million lines — and the biggest "normal" repo just past
+   that ceiling reads cold in 2.4 seconds. Below the ceiling, state buys a freshness
+   tax and nothing else.
+5. **Spring is the domain model, not a keyword.** HTTP routes, beans and
+   qualifiers, profiles, config keys, and dependency versions *as your build
+   actually resolves them* are first-class questions with first-class answers — not
+   generic symbol nodes wearing a Spring hat.
+
 ## Why
 
 Coding agents navigate Java by `grep` and hope — which means they miss the call your
 type-checker could prove exists, and hallucinate the one that was deleted last week.
 The established answers are all stateful: an LSP daemon to start and keep warm, a
-semantic index to rebuild when it drifts, embeddings to re-embed per branch. Each adds
-a freshness tax every agent session pays.
+semantic index to rebuild when it drifts, embeddings to re-embed per branch. Each
+adds a freshness tax every agent session pays — payment in staleness risk for
+per-query savings no repository under a million lines needed.
 
 `cxj` is the stateless point on that design curve — **Context7 tells your agent about
-your libraries; `cxj` tells it about your code:**
-
-- **Cold is the baseline, not the exception** — a 900-file Spring service answers
-  `brief` in ~150 ms and `trail` in ~100 ms, process startup included, measured and
-  gated in CI.
-- **Parse-level truth, not text matching** — tree-sitter over your sources; `callers`
-  matches the receiver's *declared type*, not its name's suffix.
-- **Every answer ships its certainty** — `exact` / `candidate` / `ambiguous N:` labels
-  and explicit `(+K more)` caps, so an agent knows exactly when to double-check.
-- **One skill, every harness** — `cxj install -g` writes to `~/.agents/skills`, which
-  OpenCode, Claude Code, and other agent harnesses discover natively. No MCP server to
-  babysit.
+your libraries; `cxj` tells it about your code** — and it walks in through the door
+every harness already holds open: `cxj install -g` writes one skill to
+`~/.agents/skills`, which OpenCode, Claude Code, and the rest discover natively, and
+`/plugin install cxj --marketplace umuterturk/cxj` does the same inside Claude Code.
+No MCP server to babysit.
 
 ## Quickstart
 
@@ -126,6 +149,11 @@ build on regression) and reported on real repos. Apple M3 Pro, cold process:
 | `trail --scope all` | 190 ms | ~150 ms | 313 ms |
 | `batch` ×20 | — | ~400 ms | **265 ms** (≈13 ms/query) |
 | `deps` | no index open | 12 ms | 13 ms |
+
+Scale ceiling, for the pragmatist's bet: on **Spring Framework** (1,527,748 LOC,
+9,295 files — far past the 1M-line line almost every real repo stays under), the
+cold process still answers `brief` in 2.4 s and `trail` in 1.7 s. Stateless holds
+well past the size where anyone claims it must stop holding.
 
 ```sh
 ./scripts/perf-bench.sh                            # fixture mode; fails on regression

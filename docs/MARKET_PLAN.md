@@ -7,12 +7,59 @@ account required to use the tool. An install is a binary plus a skill file; an u
 `rm`. Every marketplace we join must be joinable without violating that (a listing is not
 state; a daemon is).
 
-Positioning line used everywhere below, verbatim:
+**The messaging stack.** Canonical copy lives here first; README, plugin/marketplace
+descriptions, About, blog, HN and Reddit all draw from it, so the story is the same
+in every room. Never paraphrase into an unverified adjective — the promises are
+"checkable" precisely because each is a number or a command.
 
-> **Persistent-graph tools are a memory; cxj is a measuring instrument.** Every answer comes
-> from a fresh read of your source, so no answer can be stale, and every edge says whether it
-> is proven or inferred. The harness is the natural-language layer — cxj never was a model
-> and removed the one it had (v0.4.0).
+### The five promises (short canonical forms)
+
+1. **The only latency is one cold read of your repo.** 30–250 ms on 900-file
+   production Spring services; 2.4 s on Spring Framework itself (1.53M LOC, 9,295
+   files, measured 2026-11-03). No first-session index, no daemon, nothing to warm.
+2. **Trusts the code. Only the code.** tree-sitter + declared types + certainty
+   labels (`exact`/`candidate`/`ambiguous`, `(+K more)` caps). No embeddings, no
+   ranking model — nothing that can be plausibly wrong.
+3. **Read-safe and write-safe.** Query commands write nothing and touch no network
+   (only `install`/`update` do, and you type those): no index on disk, no cache, no
+   telemetry, source never leaves the machine. Safe to point at anything; safe to
+   edit against, because answers come from the bytes on disk *now*.
+4. **The pragmatist's bet: your repo is not the Linux kernel.** Persistent graphs
+   are infrastructure for 28M-LOC outliers; the real Java world lives under 1M
+   lines, and the biggest "normal" repo past that ceiling still reads cold in 2.4 s.
+   Below the ceiling, state buys a freshness tax and nothing else.
+5. **Spring is the domain model, not a keyword.** Routes, beans, qualifiers,
+   profiles, config keys, resolved dependency versions: first-class questions,
+   first-class answers.
+
+The single-line contrast, used where only one line fits:
+
+> **Persistent-graph tools are a memory; cxj is a measuring instrument.** Every answer
+> comes from a fresh read of your source, so no answer can be stale, and every edge
+> says whether it is proven or inferred. The harness is the natural-language layer —
+> cxj never was a model and removed the one it had (v0.4.0).
+
+### Honesty guardrails (the claims we do NOT make)
+
+- Never "no latency" — publish the measured cold numbers; the claim is *bounded,
+  cold, every-time* latency with nothing to warm or invalidate.
+- Never "writes nothing" unqualified — the exception (`install`/`update`) is stated
+  in the same breath; it survives grep (`os.Create`/`WriteFile` exist only in
+  `internal/skill` and `internal/update`; `net/http` only in `update.go`).
+- Never "fastest" — "no warm-up" is the defensible superlative-free framing.
+- The 1M-LOC bet is stated as a bet with a measured ceiling case, not a law.
+
+### Medium map
+
+| Medium | Carries |
+|---|---|
+| README hero + "Five checkable promises" | all five, with numbers |
+| GitHub About | one line: stateless + read-only + offline + cannot go stale |
+| plugin.json / marketplace entry | five in one breath (description fields) |
+| skills.sh (canonical SKILL.md frontmatter) | promises 1+2+5 compressed |
+| Show HN title (candidates) | "Show HN: cxj – the only latency is one cold read of your repo" / "…trusts the code, only the code" / "I removed the AI from my code-intelligence CLI" |
+| Blog post | "Your agent doesn't need a codebase memory" (L.1), built as promise 4 vs the graph pitch |
+| Elevator (30 s, spoken) | agents pay a freshness tax on stateful indexes → under 1M LOC that tax buys nothing → cold read is 30–250 ms, 2.4 s even at 1.5M → Spring-shaped answers with certainty labels |
 
 Grounded in `/Users/umut.erturk/mycode/cxj` at `13ac6ae` (v0.4.0 shipped: 4 release assets,
 tap at 0.4.0, npm wrapper staged at 0.4.0) and marketplace research verified **2026-11-03**.

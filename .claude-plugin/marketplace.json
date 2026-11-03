@@ -13,7 +13,7 @@
     {
       "name": "cxj",
       "source": "./plugins/cxj",
-      "description": "Cold-open Java/Spring answers: brief, trail, callers, endpoints, beans, config keys, dependency truth. The harness runs the CLI; no MCP server, no index, cannot serve stale."
+      "description": "Five checkable promises: millisecond cold answers (2.4 s even on 1.5M-line Spring Framework), trusts only your source (certainty labels, no embeddings), read-only and offline, honest about repo scale, Spring-shaped through and through. Needs the cxj binary; no index, so nothing can go stale."
     }
   ]
 }
