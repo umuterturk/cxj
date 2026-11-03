@@ -48,17 +48,23 @@ start, "no recorded gap ≠ complete"). That is our best ad: quote it, don't str
 Nothing gets promoted until these are green; every marketplace comment section asks the same
 three questions (trust, uninstall, proof), and we answer them pre-emptively.
 
-- [ ] **P0.1 Trust section in README** (agent). Checksums table for the four release zips +
+- [x] **P0.1 Trust section in README** (agent). Checksums table for the four release zips +
   one-line verification command (`shasum -a 256` / `sha256sum`); Gatekeeper note for the
   unsigned macOS zip (`xattr -d com.apple.quarantine cxj`, brew/npm paths unaffected); a
   "how cxj binaries are built" sentence (public CI, four runners, `file` header smoke).
   CBM defuses the curl-bash objection with a VirusTotal badge; our honest equivalent is
   published digests + reproducible-looking CI + "the installer is `brew install`".
-- [ ] **P0.2 Uninstall section in README** (agent): `brew uninstall umuterturk/tap/cxj`,
+  *Done 2026-11-03: digests recomputed from live v0.4.0 assets before publishing the table.*
+- [x] **P0.2 Uninstall section in README** (agent): `brew uninstall umuterturk/tap/cxj`,
   `npm rm -g @umutert/cxj`, `rm $(which cxj)` + skill dirs. Two lines, big trust.
-- [ ] **P0.3 Repo polish** (agent): GitHub About text + topics check + social preview image;
+  *Done 2026-11-03.*
+- [x] **P0.3 Repo polish** (agent): GitHub About text + topics check + social preview image;
   CONTRIBUTING.md; issue templates (bug form that demands `cxj version`, repo shape, exact
   command — "measured reproductions get fixed fastest" made operational).
+  *Done 2026-11-03: About + 11 topics (added `claude-code`) via API; CONTRIBUTING +
+  structured bug/feature templates with placeholders verified against real `cxj status`
+  output. One user minute remains: the social preview has no upload API — drag
+  `docs/assets/social-preview.png` into Settings → General.*
 - [ ] **P0.4 The number** (agent designs, runs on payment-api/enigma-card-api/pos):
   token-comparison experiment — same 10 orientation questions answered by (a) an agent with
   only file-reading and (b) an agent with the cxj skill; record tokens + tool calls. Publish
@@ -70,9 +76,13 @@ three questions (trust, uninstall, proof), and we answer them pre-emptively.
   committed at 0.4.0 in `c2fccfb`).
 - [ ] **P0.7 Machine hygiene** (user): delete ask-era `~/bin/cxj` (shadows brew binary in
   PATH) and `/opt/homebrew/bin/cxj.pre-brew-backup`.
-- [ ] **P0.8 Known gap: `api webflux`** doesn't substring-match `spring-boot-starter-webflux`
-  (agent; FIX_PLAN territory — a starter-name miss is a correctness bug, fix before the
-  measurement experiment so the transcripts are clean).
+- [x] **P0.8 Known gap: `api webflux`** — **disproven, record corrected** (agent,
+  `36e3861`). Reproduced against pos-integration-api: the substring filter reaches
+  `spring-boot-starter-webflux` at both layers; the honest answer is "no version
+  established" because the BOM-managed starter has no declared version and no jar
+  in either local cache (`spring-webflux` 7.0.8 is cached; the starter is not).
+  Pinned with `TestApiStarterSubstringMatch` so the match can never rot into the
+  "no dependency matches" lie.
 
 Definition of done: fresh-eyes read of README answers trust / uninstall / proof without
 leaving the page; every badge and command verified live.
@@ -86,15 +96,24 @@ manifests and layout, zero engine code.
 
 ### 2.1 Claude Code plugin + our own marketplace (anchor — do first)
 
-- [ ] **T1.1** Repo layout: `.claude-plugin/marketplace.json` (marketplace `cxj`, one plugin
+- [x] **T1.1** Repo layout: `.claude-plugin/marketplace.json` (marketplace `cxj`, one plugin
   `cxj`), plugin dir with `.claude-plugin/plugin.json` + `skills/cxj/SKILL.md`. The plugin's
-  skill content is the same file the binary embeds.
-- [ ] **T1.2** Single source of truth: `internal/skill/SKILL.md` stays canonical;
+  skill content is the same file the binary embeds. *Done 2026-11-03 (`58a799f`), plus
+  `.claude-plugin/icon.png` — square, generated; the directory freezes the icon at first
+  portal submission, so it had to exist before T1.4.*
+- [x] **T1.2** Single source of truth: `internal/skill/SKILL.md` stays canonical;
   `scripts/sync-skill.sh` copies it to the plugin skill dir; **CI drift check** fails if the
-  copies differ (house pattern: contracts enforced in CI, not by memory).
-- [ ] **T1.3** `claude plugin validate .` locally (and in CI if the CLI installs headless);
+  copies differ (house pattern: contracts enforced in CI, not by memory). *Done — the check
+  also compares manifest versions against the newest CHANGELOG release, and caught the
+  0.3.2/0.4.0 fold-forward on its first run.*
+- [x] **T1.3** `claude plugin validate .` locally (and in CI if the CLI installs headless);
   README install section gains: `claude plugin marketplace add umuterturk/cxj` →
-  `/plugin install cxj@cxj`.
+  `/plugin install cxj@cxj`. *Done: both manifests pass `--strict` with zero warnings via
+  Claude Code 2.1.317 (npx), and the full loop was proven end-to-end locally —
+  `marketplace add` → `install cxj@cxj` → `list` (v0.4.0) → `details`: Skills (1) cxj.
+  CI runs the cheap drift check; the authoritative validate stays a release-day step.
+  The validator itself recommends the one-step form `/plugin install cxj --marketplace
+  umuterturk/cxj` (Claude Code ≥ 2.1.275), which is the README's lead line.*
 - Accept: plugin installs in Claude Code and the skill drives a correct `brief → trail`
   session on a scratch Spring repo with no manual setup beyond the two commands.
 
@@ -107,14 +126,18 @@ manifests and layout, zero engine code.
 
 ### 2.3 skills.sh (biggest cross-agent funnel)
 
-- [ ] **T1.5** Top-level `skills/cxj/SKILL.md` (synced, same drift check as T1.2) so
+- [x] **T1.5** Top-level `skills/cxj/SKILL.md` (synced, same drift check as T1.2) so
   `npx skills add umuterturk/cxj` resolves; the skill's frontmatter description must earn the
-  click in a 490k-skill directory: "Stateless Java/Spring code intelligence for coding
-  agents — cold-open, no index, cannot be stale."
+  click in a 490k-skill directory. *Done 2026-11-03: the install command was run live against
+  the pushed repo — one skill installed to `.agents/skills/cxj`, byte-identical to the
+  canonical copy. The canonical description now leads with "Stateless Java/Spring code
+  intelligence".*
 - [ ] **T1.6** (user) skills.sh index request / GitHub login to claim; README badge + the
-  one-liner.
-- [ ] **T1.7** agentskills.io standard compliance pass (frontmatter fields exactly per spec;
-  it's what Codex/Copilot/OpenCode read too).
+  one-liner. *The one-liner is in the README and works today (proven); the site listing +
+  verified badge are the remaining user step.*
+- [x] **T1.7** agentskills.io standard compliance pass (frontmatter fields exactly per spec;
+  it's what Codex/Copilot/OpenCode read too). *Verified: `name` matches the directory,
+  `description` within limits; skills.sh and Claude Code both parsed and loaded it.*
 
 ### 2.4 Hubs + aggregators (free listings, one afternoon)
 
@@ -122,9 +145,15 @@ manifests and layout, zero engine code.
   GitHub account — its page renders the README, so P0.1/P0.2 must be done first.
 - [ ] **T1.9** PRs: community `marketplace.json` collections, `awesome-claude-code`,
   awesome agent-skills lists, `awesome-java` (tool section), `awesome-opencode`. Each PR:
-  2-line description using the positioning line, no marketing voice.
-- [ ] **T1.10** README "Where to find cxj" list (brew, npm, zips, skills.sh, Claude
+  2-line description using the positioning line, no marketing voice. *Lines to paste
+  (per-room rewrite still required):*
+  > **[cxj](https://github.com/umuterturk/cxj)** — stateless Java/Spring code intelligence
+  > for coding agents. Cold-open `brief`/`trail`/`endpoints`/`deps` from a fresh read of
+  > your source: no daemon, no index, cannot serve stale. Ships as an agent skill + Claude
+  > Code plugin; `claude plugin install cxj --marketplace umuterturk/cxj`.
+- [x] **T1.10** README "Where to find cxj" list (brew, npm, zips, skills.sh, Claude
   marketplace, OpenCode when T2.1 lands) — discovery page for people who arrive late.
+  *Done 2026-11-03: the Install table is the list (six channels); OpenCode row waits on T2.1.*
 
 ---
 
