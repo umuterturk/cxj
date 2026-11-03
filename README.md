@@ -7,6 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go: 1.23+](https://img.shields.io/badge/go-1.23%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![npm](https://img.shields.io/npm/v/@umutert/cxj)](https://www.npmjs.com/package/@umutert/cxj)
+[![skills.sh](https://skills.sh/b/umuterturk/cxj)](https://skills.sh/umuterturk/cxj)
 ![Platforms: macOS / Linux](https://img.shields.io/badge/platforms-macos_%E2%80%A2_linux-lightgrey)
 
 `cxj` answers "who calls this", "what does this endpoint touch", "which version am I
