@@ -239,6 +239,7 @@ go test ./... && ./scripts/perf-bench.sh
 
 - [CHANGELOG.md](CHANGELOG.md) — every release, organized from the commit history
 - [docs/FIX_PLAN.md](docs/FIX_PLAN.md) — the full audit-to-fix record (P/A/B tracks)
+- [docs/MEASURING.md](docs/MEASURING.md) — the token experiment: what cxj saved, and where `grep` still wins
 - The bundled agent skill — [`internal/skill/SKILL.md`](internal/skill/SKILL.md), what `cxj install` writes
 
 **Status:** v0.4.x — the navigation, dependency, and distribution surfaces are all
