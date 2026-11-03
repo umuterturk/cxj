@@ -270,6 +270,52 @@ func TestApiNoJarStillResolves(t *testing.T) {
 	}
 }
 
+// TestApiStarterSubstringMatch pins the ground-truth behavior reported from
+// pos-integration-api: a BOM-managed starter declared without a version
+// (`org.springframework.boot:spring-boot-starter-webflux`) must be FOUND by
+// the short query "webflux" at both layers. The honest failure is "no version
+// established", never "no dependency matches" — the match is real, the
+// missing piece is the resolved version, and pointing at `cxj deps` is the
+// correct next hop. Regression pin: the filter is a substring of
+// "group:artifact", so starter shorthand always reaches the full name.
+func TestApiStarterSubstringMatch(t *testing.T) {
+	root := t.TempDir()
+	depsFile(t, root, "build.gradle", `
+dependencies {
+  implementation 'org.springframework.boot:spring-boot-starter'
+  implementation 'org.springframework.boot:spring-boot-starter-webflux'
+}
+`)
+	m2 := filepath.Join(root, "fake-m2") // exists, holds nothing: the cache-truth case
+	o := ApiOptions{
+		Root: root, M2Dir: m2,
+		GradleCache: filepath.Join(root, "no-gradle"), SkipUsage: true,
+		Dep: "webflux",
+	}
+	reply, err := Api(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(reply.Note, "no dependency matches") {
+		t.Fatalf("note = %q: substring filter must reach spring-boot-starter-webflux", reply.Note)
+	}
+	if len(reply.Ambiguous) != 1 || !strings.Contains(reply.Ambiguous[0], "spring-boot-starter-webflux") {
+		t.Fatalf("ambiguous = %v, want the starter listed as the unresolved match", reply.Ambiguous)
+	}
+	if !strings.Contains(reply.Note, "cxj deps webflux") {
+		t.Errorf("note = %q, want the deps-tier guidance echoing the query", reply.Note)
+	}
+
+	// The deps layer must agree: same query, same row.
+	dep, err := Deps(DepsOptions{Root: root, Filter: "webflux", Limit: DefaultDepsLimit, M2Dir: m2, GradleCache: o.GradleCache})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dep.Deps) != 1 || dep.Deps[0].Artifact != "spring-boot-starter-webflux" {
+		t.Fatalf("deps rows = %+v, want exactly the webflux starter", dep.Deps)
+	}
+}
+
 func TestApiTypeNotFoundSuggests(t *testing.T) {
 	f := newAPIFixture(t)
 	o := f.opts()
