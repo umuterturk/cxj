@@ -29,7 +29,7 @@ enough to read the output on video. Use `--fast` for a dry run. Measured on an M
 
 ## What you should see (verified against a clean clone)
 
-Each beat is cleared before it runs, so every answer is visible whole on a 120×36
+Each beat is cleared before it runs, so every answer is visible whole on a 120×29
 terminal.
 
 `brief` is 26 lines: a three-line header, five `pkg` lines, seventeen `http` lines, one
@@ -47,8 +47,8 @@ frames to match this page.
 
 ## Recording it
 
-Terminal: 120×36 or larger, dark theme, font 18–20, bare `$ ` prompt, no window chrome if
-you can hide it. Clear the screen before the take (`demo.sh` does this).
+Terminal: 120×29 minimum (the height `brief` needs), dark theme, bare `$ ` prompt, no
+window chrome if you can hide it. Clear the screen before the take (`demo.sh` does this).
 
 **asciinema + agg** (crisp, small, re-recordable — recommended)
 
@@ -100,9 +100,31 @@ grep -c "$(whoami)" demo.cast        # expect 0
 
 ## Where it goes
 
-- Top of [README](../README.md), under the tagline — the first thing a visitor sees
+- Top of [README](../README.md), under the badges — the first thing a visitor sees
   working.
 - The same GIF works as the X/LinkedIn clip with one line of copy (see the launch plan).
+
+## The recorded take
+
+`docs/assets/demo.gif` is committed: **1175×672, 192 KB, 7.2 s + 2 s hold**, rendered
+headless — no window, no prompt, nothing about the machine it ran on.
+
+```sh
+git clone --depth 1 https://github.com/spring-projects/spring-petclinic /tmp/spring-petclinic
+asciinema record --headless --window-size 120x29 --idle-time-limit 2 \
+  -c "./scripts/demo.sh --repo /tmp/spring-petclinic" /tmp/demo.cast
+agg --font-size 16 --theme asciinema --speed 1 --last-frame-duration 2 \
+  /tmp/demo.cast docs/assets/demo.gif
+```
+
+`--headless` needs no terminal at all, so the take is reproducible on a CI box. The
+120×29 window is the smallest that holds `brief` (26 lines) without scrolling; the
+`trail` rows wrap there because fully-qualified names plus paths exceed 120 columns, and
+that wrapping is left in — it is what the tool actually prints.
+
+Leak check on the cast (plain text) before rendering: `grep -c "$(whoami)" /tmp/demo.cast`
+must be `0`. Note that asciinema records the `--repo` path in the cast header, so keep
+the cast out of the repo; only the GIF is published.
 
 Keep `docs/assets/demo.gif` in the repo; GitHub renders it in the README and in social
 cards.

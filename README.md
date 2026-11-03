@@ -10,6 +10,8 @@
 [![skills.sh](https://skills.sh/b/umuterturk/cxj)](https://skills.sh/umuterturk/cxj)
 ![Platforms: macOS / Linux](https://img.shields.io/badge/platforms-macos_%E2%80%A2_linux-lightgrey)
 
+<img src="docs/assets/demo.gif" alt="cxj on spring-petclinic: brief lists every route and persisted entity; trail shows a handler's POST route, its callees and the test that covers it; callers resolves a repository method to its derived name and lists all twelve uses, tests included." width="100%">
+
 `cxj` answers "who calls this", "what does this endpoint touch", "which version am I
 really on" — about **your** Java/Spring codebase — in milliseconds, from a cold start,
 with no daemon, no embeddings, and no on-disk index.
@@ -240,6 +242,7 @@ go test ./... && ./scripts/perf-bench.sh
 - [CHANGELOG.md](CHANGELOG.md) — every release, organized from the commit history
 - [docs/FIX_PLAN.md](docs/FIX_PLAN.md) — the full audit-to-fix record (P/A/B tracks)
 - [docs/MEASURING.md](docs/MEASURING.md) — the token experiment: what cxj saved, and where `grep` still wins
+- [docs/DEMO.md](docs/DEMO.md) — the recorded take, and how to re-record it
 - The bundled agent skill — [`internal/skill/SKILL.md`](internal/skill/SKILL.md), what `cxj install` writes
 
 **Status:** v0.4.x — the navigation, dependency, and distribution surfaces are all
